@@ -2,12 +2,12 @@
 
 **One S3 and SFTP front. Tenants get their own gateway. Secrets stay on the plane.**
 
-This branch (`CORE`) is documentation only: why the storage plane exists, campaign frames, and the marketing site. The runnable plane lives on [`DEVELOPMENT`](https://github.com/real-limitless/storageflow/tree/DEVELOPMENT) when that branch ships. It has not shipped yet.
+This branch (`CORE`) is documentation only: why the storage plane exists, campaign frames, and the marketing site. The runnable plane lives on [`DEVELOPMENT`](https://github.com/real-limitless/storageflow/tree/DEVELOPMENT).
 
 | | |
 |---|---|
 | **License** | [Apache-2.0](LICENSE) |
-| **Install / code** | [`DEVELOPMENT`](https://github.com/real-limitless/storageflow/tree/DEVELOPMENT) (not shipped) |
+| **Install / code** | [`DEVELOPMENT`](https://github.com/real-limitless/storageflow/tree/DEVELOPMENT) |
 | **Marketing site** | [site/](site/) |
 | **Campaign** | [docs/campaign/](docs/campaign/) |
 | **Branches** | [BRANCHES.md](BRANCHES.md) |
@@ -43,7 +43,7 @@ It does not vendor a distributed object cluster. It is not a public file host.
 2. **Isolation is a process.** One gateway per tenant. Not a shared auth proxy.
 3. **Plain files underneath.** Crypt and chunking are optional layers. The backing store is files on a remote you already operate.
 4. **Secrets stay sealed.** Upstream credentials live on the plane. Clients get a tenant key, not the backend password.
-5. **Compose is the run path.** When DEVELOPMENT ships. A host install is not the product.
+5. **Compose is the run path.** Clone DEVELOPMENT. A host install is not the product.
 
 ### Typical flow
 
@@ -58,15 +58,19 @@ Cache mode writes back from a local cache. Write-through does not.
 
 ## Get the software
 
-DEVELOPMENT is not shipped. CORE is the concept. When the plane exists:
-
 ```sh
 git clone -b DEVELOPMENT https://github.com/real-limitless/storageflow.git
 cd storageflow
+./scripts/init-secrets.sh
 docker compose up -d --build
 ```
 
-Reserved: API http://127.0.0.1:8794/ · UI http://127.0.0.1:5179/
+| Surface | URL |
+| --- | --- |
+| SFTPGo UI | http://127.0.0.1:5179/ |
+| Admin S3 | http://127.0.0.1:8794/ |
+| Tenant `acme` S3 | http://127.0.0.1:8795/ |
+| SFTP | `127.0.0.1:2022` |
 
 ## Family
 

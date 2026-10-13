@@ -6,7 +6,7 @@
     <title>Start: storageflow</title>
     <meta
       name="description"
-      content="CORE is the concept. DEVELOPMENT is the storage plane. It is not shipped yet. Reserved ports 8794 and 5179."
+      content="Clone DEVELOPMENT. Compose up. SFTPGo on 5179. Admin S3 on 8794. Tenant acme on 8795."
     />
     <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
     <link rel="stylesheet" href="assets/styles.css" />
@@ -17,29 +17,29 @@
     <main>
       <div class="wrap page-hero">
         <p class="eyebrow">Act III · Proof</p>
-        <h1 class="page-title">The plane is not shipped yet</h1>
+        <h1 class="page-title">Clone DEVELOPMENT. Compose up.</h1>
         <p class="lede">
-          This GitHub Pages shell is CORE. The runnable plane lives on DEVELOPMENT. That branch
-          is a stub until the app exists. Do not expect compose to come up.
+          This GitHub Pages shell is CORE. The example stack lives on DEVELOPMENT. Init writes
+          local secrets. Compose brings up the gateways.
         </p>
       </div>
 
       <section class="section">
         <div class="wrap">
           <div class="panel" style="margin-bottom: 24px">
-            <div class="panel-head"><span class="title">When DEVELOPMENT ships</span></div>
+            <div class="panel-head"><span class="title">DEVELOPMENT</span></div>
             <div class="panel-body">
               <pre class="code">git clone -b DEVELOPMENT https://github.com/real-limitless/storageflow.git
 cd storageflow
-cp .env.example .env
+./scripts/init-secrets.sh
 docker compose up -d --build</pre>
             </div>
           </div>
 
           <div class="prose">
             <p>
-              Reserved ports: API http://127.0.0.1:8794/ and UI http://127.0.0.1:5179/. S3 and
-              SFTP listen ports are chosen when the plane exists.
+              SFTPGo UI http://127.0.0.1:5179/. Admin S3 http://127.0.0.1:8794/. Tenant acme
+              http://127.0.0.1:8795/. SFTP 127.0.0.1:2022.
             </p>
             <p>
               Host installs are for contributors. They are not the supported run path. Read
@@ -58,8 +58,7 @@ docker compose up -d --build</pre>
             <div class="panel">
               <div class="panel-head"><span class="title">The plane</span></div>
               <div class="panel-body" style="color: var(--mute); font-size: 14px; line-height: 1.5">
-                Not on CORE. Not shipped on DEVELOPMENT yet. Backends stay remotes you already
-                operate.
+                Not on CORE. DEVELOPMENT has the compose stack. The example backend is a local volume.
               </div>
             </div>
           </div>

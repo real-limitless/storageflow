@@ -15,18 +15,18 @@
 | Layers | Plain files. Optional crypt. Optional chunker. |
 | Modes | Write-through and write-back cache. Same plane. |
 | Secrets | Sealed on the plane. Clients get a tenant key. |
-| Ports | API **8794**, UI **5179**. Data-plane ports decided later. |
-| Run path | Compose, when DEVELOPMENT ships. |
+| Ports | SFTPGo UI **5179**, admin S3 **8794**, tenant S3 **8795**, SFTP **2022**. |
+| Run path | Compose on DEVELOPMENT. |
 
 ## Phases
 
 | Phase | Status |
 | --- | --- |
 | P0 CORE concept + campaign + site | this branch |
-| P1 DEVELOPMENT control plane | not shipped |
-| P2 Per-tenant S3 gateway | not shipped |
-| P3 SFTP door on the same bytes | not shipped |
-| P4 Crypt, chunker, cache modes | not shipped |
+| P1 DEVELOPMENT compose stack | shipped (example local backend) |
+| P2 Per-tenant S3 gateway | example tenant `acme` |
+| P3 SFTP door | SFTPGo shipped. SFTP backend is optional, not the example. |
+| P4 Crypt, chunker, cache modes | write-back cache shipped. Crypt and chunker documented, not in the example. |
 
 ## Non-goals (v1)
 

@@ -11,4 +11,4 @@ Source: private kit TheFLOW (`real-limitless/TheFLOW`). Do not fork these rules 
 git checkout DEVELOPMENT
 ```
 
-The app is not shipped on DEVELOPMENT yet. CORE is the front door until it is.
+DEVELOPMENT has the compose stack. CORE is the front door. If you only see markdown and `site/`, you are still on CORE.

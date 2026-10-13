@@ -2,12 +2,12 @@
 
 This checkout is the CORE branch: concept, license, campaign frames, and marketing site. No storage-plane source.
 
-- Runnable plane: branch DEVELOPMENT. Compose is the supported run path. Not shipped yet.
+- Runnable plane: branch DEVELOPMENT. Compose is the supported run path. Example tenant `acme`, local backend.
 - Campaign frames: `docs/campaign/`. Capture with `./capture.sh` into `docs/images/`.
 - Campaign CSS in `docs/campaign/assets/styles.css` uses the same palette as `site/assets/styles.css`.
 - Do not add src/, package.json, docker-compose.yml, or gateway images here.
 - Do not import private operator inventory, hostnames, credentials, or tailnet addresses from other repos.
-- Do not claim DEVELOPMENT is runnable until the plane exists.
+- Do not claim a separate control API. 8794 is admin S3. 5179 is SFTPGo.
 
 ## graphify
 

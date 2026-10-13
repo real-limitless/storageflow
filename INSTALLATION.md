@@ -2,26 +2,22 @@
 
 Source: private kit TheFLOW. Family ritual: clone DEVELOPMENT, then Compose.
 
-This CORE branch is documentation only. The storage plane is **not shipped** on DEVELOPMENT yet. Do not expect `docker compose up` to bring up gateways.
-
-When DEVELOPMENT ships:
+This CORE branch is documentation only. The example stack is on DEVELOPMENT.
 
 ```sh
 git clone -b DEVELOPMENT https://github.com/real-limitless/storageflow.git
 cd storageflow
-cp .env.example .env
+./scripts/init-secrets.sh
 docker compose up -d --build
 ```
 
-Reserved ports:
-
-| Surface | Port |
+| Surface | URL |
 | --- | --- |
-| Control API | http://127.0.0.1:8794/ |
-| UI | http://127.0.0.1:5179/ |
+| SFTPGo UI | http://127.0.0.1:5179/ |
+| Admin S3 (write-back) | http://127.0.0.1:8794/ |
+| Tenant `acme` S3 | http://127.0.0.1:8795/ |
+| SFTP | `127.0.0.1:2022` |
 
-Data-plane ports (S3, SFTP) are chosen on DEVELOPMENT. They are not part of this docs branch.
+The example backend is a local volume. It is not a remote host. Host Node is not the supported run path.
 
-Host installs are for contributors. They are not the supported run path.
-
-Until DEVELOPMENT ships, stay on CORE: read the concept, campaign, and site.
+`init-secrets.sh` writes gitignored `.env` and `secrets/tenants.json`. Do not commit them.

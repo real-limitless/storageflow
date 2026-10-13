@@ -11,7 +11,7 @@ Design source of truth: [`docs/campaign/`](../docs/campaign/) (1440×900 frames 
 | `index.html` | Hero · two doors · volume rail |
 | `why.html` | Act I: every app should not grow a disk |
 | `how.html` | Act II: tenant process, S3 and SFTP, cache modes |
-| `start.html` | Act III: DEVELOPMENT not shipped yet |
+| `start.html` | Act III: clone DEVELOPMENT, compose up |
 | `404.html` | Empty volume |
 
 ## Local preview
