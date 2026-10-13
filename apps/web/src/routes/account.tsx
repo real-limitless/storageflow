@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { api } from "@/lib/api";
 import { formatBytes } from "@/lib/format";
-import { WorkspaceHeader } from "@/components/header";
+import { AppShell } from "@/components/header";
 import { Button, Card, Input, Label } from "@/components/ui";
 
 export function AccountPage() {
@@ -13,9 +13,8 @@ export function AccountPage() {
   if (!me.data) return <p className="p-6">Loading…</p>;
   const data = me.data;
   return (
-    <div className="flex h-full flex-col">
-      <WorkspaceHeader />
-      <main className="mx-auto w-full max-w-3xl space-y-4 p-6">
+    <AppShell>
+      <main className="mx-auto w-full max-w-3xl space-y-4 overflow-auto p-6">
         <h1 className="text-lg font-semibold">Account</h1>
         <Card className="space-y-3 p-4">
           <form
@@ -69,7 +68,7 @@ export function AccountPage() {
           </Card>
         )}
       </main>
-    </div>
+    </AppShell>
   );
 }
 

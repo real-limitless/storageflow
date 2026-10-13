@@ -40,9 +40,12 @@ export function SignInPage() {
   }
 
   return (
-    <main className="grid min-h-full place-items-center p-6">
-      <Card className="w-full max-w-sm space-y-4 p-6">
-        <h1 className="text-lg font-semibold">StorageFlow</h1>
+    <main className="grid min-h-full place-items-center bg-[var(--page)] p-6">
+      <Card className="w-full max-w-sm space-y-4 border-[var(--line)] p-8 shadow-sm">
+        <div className="flex items-center gap-2">
+          <span className="grid h-8 w-8 place-items-center rounded-lg bg-primary text-xs font-semibold text-white">SF</span>
+          <h1 className="text-lg font-semibold">StorageFlow</h1>
+        </div>
         <form className="space-y-3" onSubmit={(event) => void submit(event)}>
           {mode === "create" && (
             <>

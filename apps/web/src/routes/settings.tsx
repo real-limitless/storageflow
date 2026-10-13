@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
 import { api } from "@/lib/api";
 import { formatWhen } from "@/lib/format";
-import { WorkspaceHeader } from "@/components/header";
+import { AppShell } from "@/components/header";
 import { Button, Card, Input, Label, Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui";
 
 export function SettingsPage() {
@@ -15,8 +15,7 @@ export function SettingsPage() {
   const activity = useQuery({ queryKey: ["activity", projectId], queryFn: () => api<ActivityEvent[]>(`/activity?projectId=${projectId}`) });
   if (!project) return <p className="p-6">Loading…</p>;
   return (
-    <div className="flex h-full flex-col">
-      <WorkspaceHeader project={project} />
+    <AppShell project={project}>
       <main className="mx-auto w-full max-w-3xl space-y-4 overflow-auto p-6">
         <h1 className="text-lg font-semibold">Project settings</h1>
         <Card className="space-y-3 p-4">
@@ -100,6 +99,6 @@ export function SettingsPage() {
           </ul>
         </Card>
       </main>
-    </div>
+    </AppShell>
   );
 }

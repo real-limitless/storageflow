@@ -15,20 +15,20 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md text-sm font-medium transition-colors disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+  "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-[10px] text-sm font-medium transition-colors disabled:pointer-events-none disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
   {
     variants: {
       variant: {
         default: "bg-primary text-primary-foreground hover:bg-primary/90",
         secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
-        outline: "border border-input bg-background hover:bg-accent",
-        ghost: "hover:bg-accent",
+        outline: "border border-input bg-white text-foreground hover:bg-accent",
+        ghost: "text-muted-foreground hover:bg-accent hover:text-foreground",
         destructive: "bg-destructive text-white hover:bg-destructive/90",
       },
       size: {
-        default: "h-8 px-3",
-        sm: "h-7 px-2 text-xs",
-        icon: "h-8 w-8",
+        default: "h-9 px-3.5",
+        sm: "h-8 px-2.5 text-[13px]",
+        icon: "h-9 w-9",
       },
     },
     defaultVariants: { variant: "default", size: "default" },
@@ -48,7 +48,7 @@ Button.displayName = "Button";
 export const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(({ className, ...props }, ref) => (
   <input
     ref={ref}
-    className={cn("flex h-8 w-full rounded-md border border-input bg-background px-2 py-1 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring", className)}
+    className={cn("flex h-9 w-full rounded-[10px] border border-input bg-white px-3 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring", className)}
     {...props}
   />
 ));

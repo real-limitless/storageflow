@@ -55,7 +55,7 @@ export function PortalPage() {
 
   if (!ready) {
     return (
-      <main className="mx-auto max-w-md space-y-3 p-8" data-density="comfortable">
+      <main className="mx-auto max-w-md space-y-3 bg-[var(--page)] p-8" data-density="comfortable">
         <h1 className="text-xl font-semibold">Portal</h1>
         <p>{error || "Opening the link…"}</p>
         {error === "Password required" && (
@@ -78,8 +78,8 @@ export function PortalPage() {
 
   const canUpload = home.data?.roots.some((root) => root.verbs.includes("upload"));
   return (
-    <div className="flex min-h-full flex-col" data-density="comfortable">
-      <header className="flex items-center justify-between border-b px-6 py-4">
+    <div className="flex min-h-full flex-col bg-[var(--page)]" data-density="comfortable">
+      <header className="flex items-center justify-between border-b border-[var(--line)] bg-white px-6 py-4">
         <div>
           <p className="text-xs text-muted-foreground">Portal</p>
           <h1 className="text-xl font-semibold">{home.data?.portal.projectName ?? "Portal"}</h1>
@@ -98,7 +98,7 @@ export function PortalPage() {
         </div>
       </header>
       <div className="flex min-h-0 flex-1">
-        <aside className="w-64 border-r p-4">
+        <aside className="w-64 border-r border-[var(--line)] bg-white p-4">
           <p className="mb-2 text-sm text-muted-foreground">Shared with you</p>
           <ul className="space-y-1">
             {home.data?.roots.map((root) => (
@@ -128,7 +128,7 @@ export function PortalPage() {
           {tab === "files" && open && !open.dropFolder && (
             <div className="grid gap-3 sm:grid-cols-2">
               {listing.data?.files.map((file) => (
-                <div key={file.id} className="rounded-lg border p-4">
+                <div key={file.id} className="rounded-xl border border-[var(--line)] bg-white p-4 shadow-sm">
                   <p className="font-medium">{file.name}</p>
                   <p className="text-sm text-muted-foreground">{formatBytes(file.size)}</p>
                   <div className="mt-3 flex gap-2">

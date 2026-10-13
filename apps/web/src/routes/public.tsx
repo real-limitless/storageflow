@@ -20,7 +20,7 @@ export function DownloadPage() {
     return () => window.clearInterval(timer);
   }, [ticket]);
   return (
-    <main className="mx-auto grid max-w-4xl gap-6 p-6 md:grid-cols-2" data-density="comfortable">
+    <main className="mx-auto grid min-h-full max-w-4xl content-center gap-6 bg-[var(--page)] p-6 md:grid-cols-2" data-density="comfortable">
       <Card className="space-y-2 p-6">
         <p className="text-sm text-muted-foreground">StorageFlow</p>
         {file.isError && <p>This file is not published.</p>}
@@ -81,7 +81,7 @@ export function CatalogPage() {
     queryFn: () => api<{ tenant: { name: string }; files: CatalogEntry[] }>(`/catalog/${tenantSlug}`),
   });
   return (
-    <main className="mx-auto max-w-2xl space-y-4 p-6">
+    <main className="mx-auto min-h-full max-w-2xl space-y-4 bg-[var(--page)] p-6">
       <h1 className="text-xl font-semibold">{catalog.data?.tenant.name ?? "Catalog"}</h1>
       <ul className="space-y-2">
         {catalog.data?.files.map((file) => (
