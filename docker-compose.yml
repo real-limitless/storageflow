@@ -1,0 +1,107 @@
+x-s3-health: &s3-health
+  test: ["CMD", "python3", "-c", "import socket; socket.create_connection(('127.0.0.1',8080),2).close()"]
+  interval: 15s
+  timeout: 5s
+  retries: 5
+  start_period: 45s
+
+services:
+  s3-through:
+    build: .
+    command: ["through", "gateway", "admin"]
+    restart: unless-stopped
+    environment:
+      SOPS_AGE_KEY: ${SOPS_AGE_KEY:-}
+    tmpfs:
+      - /run/secrets:mode=1777,size=16m
+    volumes:
+      - ./secrets:/config:ro
+      - ./data/backend:/data
+    expose:
+      - "8080"
+    healthcheck: *s3-health
+
+  s3-cache:
+    build: .
+    command: ["cache", "gateway", "admin"]
+    restart: unless-stopped
+    environment:
+      SOPS_AGE_KEY: ${SOPS_AGE_KEY:-}
+      VFS_CACHE_MAX_SIZE: ${VFS_CACHE_MAX_SIZE:-20G}
+      VFS_WRITE_BACK: ${VFS_WRITE_BACK:-5s}
+    tmpfs:
+      - /run/secrets:mode=1777,size=16m
+    volumes:
+      - ./secrets:/config:ro
+      - ./data/backend:/data
+      - vfs-cache:/cache
+    ports:
+      - "8794:8080"
+    healthcheck: *s3-health
+
+  s3-acme:
+    build: .
+    command: ["cache", "gateway-acme", "acme"]
+    restart: unless-stopped
+    environment:
+      SOPS_AGE_KEY: ${SOPS_AGE_KEY:-}
+      VFS_CACHE_MAX_SIZE: ${VFS_CACHE_MAX_SIZE:-20G}
+      VFS_WRITE_BACK: ${VFS_WRITE_BACK:-5s}
+    tmpfs:
+      - /run/secrets:mode=1777,size=16m
+    volumes:
+      - ./secrets:/config:ro
+      - ./data/backend:/data
+      - vfs-cache:/cache
+    ports:
+      - "8795:8080"
+    healthcheck: *s3-health
+
+  sftpgo:
+    image: drakkan/sftpgo:v2
+    restart: unless-stopped
+    environment:
+      SFTPGO_DATA_PROVIDER__CREATE_DEFAULT_ADMIN: "true"
+      SFTPGO_DEFAULT_ADMIN_USERNAME: ${SFTPGO_ADMIN_USERNAME:-admin}
+      SFTPGO_DEFAULT_ADMIN_PASSWORD: ${SFTPGO_ADMIN_PASSWORD:?run ./scripts/init-secrets.sh}
+    volumes:
+      - sftpgo-data:/var/lib/sftpgo
+    ports:
+      - "5179:8080"
+      - "2022:2022"
+    depends_on:
+      - s3-cache
+      - s3-through
+      - s3-acme
+
+  media-mount:
+    profiles: ["fuse"]
+    build: .
+    user: "0:0"
+    command: ["mount", "acme-plain", "acme"]
+    restart: unless-stopped
+    cap_add:
+      - SYS_ADMIN
+    devices:
+      - /dev/fuse:/dev/fuse
+    security_opt:
+      - apparmor:unconfined
+    environment:
+      SOPS_AGE_KEY: ${SOPS_AGE_KEY:-}
+      VFS_CACHE_MAX_SIZE: ${VFS_CACHE_MAX_SIZE:-20G}
+      VFS_WRITE_BACK: ${VFS_WRITE_BACK:-5s}
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+    tmpfs:
+      - /run/secrets:mode=1777,size=16m
+    volumes:
+      - ./secrets:/config:ro
+      - ./data/backend:/data
+      - vfs-cache:/cache
+      - ${MEDIA_MOUNT:-./data/media}:/mnt/media:shared
+    depends_on:
+      - s3-acme
+
+volumes:
+  sftpgo-data:
+  vfs-cache:

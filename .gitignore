@@ -1,0 +1,13 @@
+secrets/*.json
+secrets/*.conf
+secrets/*.txt
+secrets/*.sops
+secrets/*.key
+.env
+.env.*
+!.env.example
+known_hosts
+data/
+age.key
+*.key
+.DS_Store

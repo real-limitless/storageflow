@@ -1,0 +1,9 @@
+.git
+.env
+.env.*
+secrets/*.json
+secrets/*.sops
+secrets/*.conf
+known_hosts
+data/
+docs/

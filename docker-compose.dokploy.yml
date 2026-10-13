@@ -1,0 +1,21 @@
+services:
+  s3-through:
+    networks:
+      - default
+      - dokploy-network
+  s3-cache:
+    networks:
+      - default
+      - dokploy-network
+  s3-acme:
+    networks:
+      - default
+      - dokploy-network
+  sftpgo:
+    networks:
+      - default
+      - dokploy-network
+
+networks:
+  dokploy-network:
+    external: true
