@@ -19,6 +19,10 @@ backend       → local volume ./data/backend
 
 Admin processes use the `gateway` remote and the `admin` key. `s3-acme` uses `gateway-acme` and the `acme` key.
 
+## Cabinet
+
+The operator console, guest portal, and public transfer service sit on this plane. Postgres holds tenants, projects, drawers, grants, and the listing cache. Bytes stay on the drawer backend. Hosted drawers for tenant `acme` use `s3-acme` and the `acme-plain` bucket. The API streams a linked or hosted object to a guest or a transfer ticket so the backend credential is not handed out. One `serve s3` process per tenant stays the isolation rule.
+
 ## Modes
 
 Write-through (`s3-through`) waits for the backend. Write-back (`s3-cache`, `s3-acme`) lands in a local VFS cache, then flushes.

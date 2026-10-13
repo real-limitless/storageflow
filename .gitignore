@@ -8,6 +8,10 @@ secrets/*.key
 !.env.example
 known_hosts
 data/
+node_modules/
+dist/
+.playwright-mcp/
+*.tsbuildinfo
 age.key
 *.key
 .DS_Store

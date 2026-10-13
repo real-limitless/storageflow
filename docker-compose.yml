@@ -102,6 +102,58 @@ services:
     depends_on:
       - s3-acme
 
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: storageflow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-storageflow}
+      POSTGRES_DB: storageflow
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U storageflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://storageflow:${POSTGRES_PASSWORD:-storageflow}@postgres:5432/storageflow
+      HOSTED_S3_ENDPOINT: http://s3-acme:8080
+      HOSTED_S3_BUCKET: acme-plain
+      HOSTED_TENANT: acme
+      SECRETS_DIR: /config
+      PORT: "8787"
+    volumes:
+      - ./secrets:/config:ro
+    ports:
+      - "8787:8787"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      s3-acme:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
+
 volumes:
   sftpgo-data:
   vfs-cache:
+  pg-data:

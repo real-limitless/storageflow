@@ -1,0 +1,21 @@
+{
+  "name": "storageflow",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev -w @storageflow/api",
+    "dev:web": "npm run dev -w @storageflow/web",
+    "test": "npm run test -w @storageflow/domain && npm run test -w @storageflow/storage && npm run test -w @storageflow/api",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "overrides": {
+    "rollup": "4.40.1"
+  }
+}
