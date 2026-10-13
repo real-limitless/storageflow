@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Hero: storageflow</title>
+    <link rel="stylesheet" href="../assets/styles.css" />
+  </head>
+  <body class="frame-body">
+    <div class="canvas" id="frame">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true"></div>
+          <div class="brand-name">storage<span>flow</span></div>
+        </div>
+        <div class="meta-pills">
+          <span class="pill accent">Volume rail</span>
+          <span class="pill on">Sealed</span>
+          <span class="pill">Apache-2.0</span>
+        </div>
+      </header>
+
+      <div class="inv-rail" aria-label="Volume rail">
+        <div class="inv-slot gw">
+          <span class="role">s3</span>
+          <span class="host">path-style</span>
+          <span class="led"></span>
+        </div>
+        <div class="inv-slot dirty">
+          <span class="role">sftp</span>
+          <span class="host">same bytes</span>
+          <span class="led"></span>
+        </div>
+        <div class="inv-slot ok">
+          <span class="role">tenant</span>
+          <span class="host">own process</span>
+          <span class="led"></span>
+        </div>
+        <div class="inv-slot sealed">
+          <span class="role">secrets</span>
+          <span class="host">sealed</span>
+          <span class="led"></span>
+        </div>
+        <div class="inv-slot empty">
+          <span class="role">shared disk</span>
+          <span class="host">not a plane</span>
+          <span class="led"></span>
+        </div>
+      </div>
+
+      <div class="main two-col" style="margin-top: 28px">
+        <div class="stack" style="gap: 22px; padding-top: 8px">
+          <div>
+            <p class="eyebrow">Storage plane · tenant gateways</p>
+            <h1 class="display">One front door.<br /><em>Keep the bytes.</em></h1>
+          </div>
+          <p class="lede">
+            Clients speak S3 or SFTP. Bytes live on backends you already operate. Upstream
+            secrets stay on the plane.
+          </p>
+          <div class="tag-row">
+            <span class="tag hot">volume rail</span>
+            <span class="tag">S3 + SFTP</span>
+            <span class="tag vault">sealed</span>
+            <span class="tag">Apache-2.0</span>
+          </div>
+        </div>
+
+        <div class="stack">
+          <div class="panel">
+            <div class="panel-head">
+              <span class="title">Tenant · acme</span>
+              <span class="title" style="color: var(--phosphor)">own process</span>
+            </div>
+            <div class="panel-body chat">
+              <div class="bubble user">Put acme-plain/report.pdf over S3.</div>
+              <div class="bubble agent">
+                <span class="tool">s3 · acme gateway · path-style</span>
+                <span class="ok">ok · plain files on the remote</span>
+              </div>
+              <div class="bubble user">Read it back over SFTP.</div>
+              <div class="bubble agent">
+                <span class="tool">sftp · same tenant · same bytes</span>
+                <span class="ok">ok · backend password stayed sealed</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <footer class="frame-foot">
+        <span>Campaign · Hero</span>
+        <span>One front door · keep the bytes</span>
+      </footer>
+    </div>
+  </body>
+</html>

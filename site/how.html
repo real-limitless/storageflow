@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en" data-base="">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>How: storageflow</title>
+    <meta
+      name="description"
+      content="One gateway process per tenant. S3 and SFTP on the same bytes. Write-through and write-back cache are modes."
+    />
+    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+    <link rel="stylesheet" href="assets/styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+    <header class="topbar" id="site-nav"></header>
+    <main>
+      <div class="wrap page-hero">
+        <p class="eyebrow">Act II · Contract</p>
+        <h1 class="page-title">Process, doors, modes</h1>
+        <p class="lede">
+          Isolation is a process. The doors are S3 and SFTP. Cache is a mode. Not shipped on
+          DEVELOPMENT yet.
+        </p>
+      </div>
+
+      <section class="section">
+        <div class="wrap">
+          <div class="panel" style="margin-bottom: 24px">
+            <div class="panel-head"><span class="title">Tenant path</span></div>
+            <div class="panel-body ritual">
+              <div class="ritual-step">
+                <div class="step-idx">01</div>
+                <div>
+                  <div class="step-cmd">tenant gateway</div>
+                  <div class="step-note">One process. Its own auth. Not a shared proxy.</div>
+                </div>
+              </div>
+              <div class="ritual-step">
+                <div class="step-idx">02</div>
+                <div>
+                  <div class="step-cmd">s3 and sftp</div>
+                  <div class="step-note">Path-style buckets and an SFTP door. Same bytes.</div>
+                </div>
+              </div>
+              <div class="ritual-step">
+                <div class="step-idx">03</div>
+                <div>
+                  <div class="step-cmd">layers</div>
+                  <div class="step-note">Plain, optional crypt, optional chunker.</div>
+                </div>
+              </div>
+              <div class="ritual-step">
+                <div class="step-idx">04</div>
+                <div>
+                  <div class="step-cmd">mode</div>
+                  <div class="step-note">Write-through, or write-back from a local cache.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="prose">
+            <p>
+              A shared auth proxy is not tenant isolation. If the proxy dies, every tenant dies
+              with it. storageflow keeps the failure domain on the tenant process.
+            </p>
+            <p>
+              Sibling products may consume the doors later. mcp-flow holds tools. OpenFlow holds
+              workflows. This plane holds bytes.
+            </p>
+          </div>
+
+          <div class="btn-row" style="margin-top: 32px">
+            <a class="btn primary" href="start.html">Install notes</a>
+            <a class="btn ghost" href="why.html">Why it exists</a>
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer class="site-footer" id="site-footer"></footer>
+    </div>
+    <script src="assets/chrome.js"></script>
+    <script src="assets/site.js"></script>
+  </body>
+</html>

@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en" data-base="">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>storageflow: One front door. Keep the bytes.</title>
+    <meta
+      name="description"
+      content="S3 and SFTP in front of backends you already have. One gateway process per tenant. Secrets stay on the plane."
+    />
+    <meta property="og:title" content="storageflow: One front door. Keep the bytes." />
+    <meta
+      property="og:description"
+      content="Two doors. One plane. Not a second object cluster."
+    />
+    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+    <link rel="stylesheet" href="assets/styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+    <header class="topbar" id="site-nav"></header>
+
+    <main>
+      <div class="wrap hero">
+        <div class="wall-rail" aria-label="Volume rail">
+          <div class="wall-slot wall">
+            <span class="role">s3</span>
+            <span class="host">path-style</span>
+            <span class="led"></span>
+          </div>
+          <div class="wall-slot dirty">
+            <span class="role">sftp</span>
+            <span class="host">same bytes</span>
+            <span class="led"></span>
+          </div>
+          <div class="wall-slot clean">
+            <span class="role">tenant</span>
+            <span class="host">own process</span>
+            <span class="led"></span>
+          </div>
+          <div class="wall-slot clean">
+            <span class="role">secrets</span>
+            <span class="host">sealed</span>
+            <span class="led"></span>
+          </div>
+          <div class="wall-slot empty">
+            <span class="role">shared disk</span>
+            <span class="host">not a plane</span>
+            <span class="led"></span>
+          </div>
+        </div>
+
+        <p class="eyebrow">Storage plane · tenant gateways</p>
+        <h1 class="display">One front door.<br /><em>Keep the bytes.</em></h1>
+        <p class="lede">
+          Clients speak S3 or SFTP. Bytes live on backends you already operate. Each tenant
+          gets its own gateway. Upstream secrets stay on the plane.
+        </p>
+        <div class="tag-row">
+          <span class="tag hot">volume rail</span>
+          <span class="tag">S3 + SFTP</span>
+          <span class="tag vault">sealed</span>
+          <span class="tag">Apache-2.0</span>
+        </div>
+        <div class="btn-row">
+          <a class="btn primary" href="how.html">How the plane works</a>
+          <a class="btn" href="https://github.com/real-limitless/storageflow" rel="noopener">GitHub</a>
+          <a class="btn ghost" href="start.html">Install later</a>
+        </div>
+
+        <div class="grid-3">
+          <a class="card" href="why.html">
+            <span class="act">Act I · Perimeter</span>
+            <h3>Apps should not grow disks</h3>
+            <p>
+              A laptop cache is not a control plane. A copied MinIO tree is not a backend you
+              already operate.
+            </p>
+            <span class="go">Why it exists →</span>
+          </a>
+          <a class="card" href="how.html">
+            <span class="act">Act II · Contract</span>
+            <h3>Process, doors, modes</h3>
+            <p>
+              One gateway process per tenant. S3 and SFTP see the same bytes. Cache is a mode,
+              not a second product.
+            </p>
+            <span class="go">See the plane →</span>
+          </a>
+          <a class="card" href="start.html">
+            <span class="act">Act III · Proof</span>
+            <h3>Compose when it ships</h3>
+            <p>
+              CORE is the concept. DEVELOPMENT is the app. It is not shipped yet. Ports 8794 and
+              5179 are reserved.
+            </p>
+            <span class="go">Read install →</span>
+          </a>
+        </div>
+      </div>
+
+      <section class="section">
+        <div class="wrap">
+          <p class="eyebrow">Backends you already have</p>
+          <h2 class="section-title">Do not vendor an object cluster</h2>
+          <div class="grid-2" style="margin-top: 24px">
+            <div class="panel">
+              <div class="panel-head"><span class="title">Tenant path</span></div>
+              <div class="panel-body ritual">
+                <div class="ritual-step">
+                  <div class="step-idx">01</div>
+                  <div>
+                    <div class="step-cmd">door</div>
+                    <div class="step-note">S3 path-style or SFTP. Same tenant.</div>
+                  </div>
+                </div>
+                <div class="ritual-step">
+                  <div class="step-idx">02</div>
+                  <div>
+                    <div class="step-cmd">gateway</div>
+                    <div class="step-note">One process. Not a shared auth proxy.</div>
+                  </div>
+                </div>
+                <div class="ritual-step">
+                  <div class="step-idx">03</div>
+                  <div>
+                    <div class="step-cmd">layers</div>
+                    <div class="step-note">Optional crypt and chunker. Plain files underneath.</div>
+                  </div>
+                </div>
+                <div class="ritual-step">
+                  <div class="step-idx">04</div>
+                  <div>
+                    <div class="step-cmd">backend</div>
+                    <div class="step-note">SFTP or local files you already operate.</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="panel">
+              <div class="panel-head"><span class="title">Who owns what</span></div>
+              <div class="panel-body">
+                <p style="color: var(--mute); font-size: 14px; margin-bottom: 16px; line-height: 1.5">
+                  Sibling products may read and write objects later. They do not each grow a disk.
+                </p>
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th></th>
+                      <th>storageflow</th>
+                      <th>your backend</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>S3 / SFTP doors</td>
+                      <td style="color: var(--phosphor)">Owns</td>
+                      <td style="color: var(--mute)">Bytes</td>
+                    </tr>
+                    <tr>
+                      <td>Tenant process</td>
+                      <td style="color: var(--phosphor)">Owns</td>
+                      <td style="color: var(--mute)">Remote</td>
+                    </tr>
+                    <tr>
+                      <td>Upstream secrets</td>
+                      <td style="color: var(--phosphor)">Sealed</td>
+                      <td style="color: var(--mute)">Never in clients</td>
+                    </tr>
+                    <tr>
+                      <td>Object cluster</td>
+                      <td style="color: var(--deny)">Does not vendor</td>
+                      <td style="color: var(--deny)">Not required</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer" id="site-footer"></footer>
+    </div>
+    <script src="assets/chrome.js"></script>
+    <script src="assets/site.js"></script>
+  </body>
+</html>

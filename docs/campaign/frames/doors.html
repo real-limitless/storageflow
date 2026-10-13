@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Doors: storageflow</title>
+    <link rel="stylesheet" href="../assets/styles.css" />
+  </head>
+  <body class="frame-body">
+    <div class="canvas" id="frame">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true"></div>
+          <div class="brand-name">storage<span>flow</span></div>
+        </div>
+        <div class="meta-pills">
+          <span class="pill accent">Doors</span>
+          <span class="pill vault">Same bytes</span>
+        </div>
+      </header>
+
+      <div class="main" style="margin-top: 8px">
+        <p class="eyebrow">Two protocols</p>
+        <h2 class="section-title" style="margin-bottom: 10px">S3 and SFTP. Same tenant bytes.</h2>
+        <p class="lede" style="margin-bottom: 22px; max-width: 54ch">
+          Path-style buckets for S3 clients. An SFTP door for file clients. One backing tree.
+        </p>
+
+        <div class="panel" style="padding: 0">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Door</th>
+                <th>Client</th>
+                <th>Shape</th>
+                <th>Secret</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="slug">s3</td>
+                <td>aws cli / sdk</td>
+                <td><span class="badge on">path-style</span></td>
+                <td>tenant key</td>
+              </tr>
+              <tr>
+                <td class="slug">sftp</td>
+                <td>file client</td>
+                <td><span class="badge place">same tree</span></td>
+                <td>tenant key</td>
+              </tr>
+              <tr>
+                <td class="slug">crypt</td>
+                <td>either door</td>
+                <td><span class="badge warn">optional</span></td>
+                <td>sealed on plane</td>
+              </tr>
+              <tr>
+                <td class="slug">backend password</td>
+                <td>never a client</td>
+                <td><span class="badge deny">sealed</span></td>
+                <td>not exported</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <footer class="frame-foot">
+        <span>Campaign · Doors</span>
+        <span>S3 and SFTP · same bytes</span>
+      </footer>
+    </div>
+  </body>
+</html>

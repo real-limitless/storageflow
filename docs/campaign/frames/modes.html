@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Modes: storageflow</title>
+    <link rel="stylesheet" href="../assets/styles.css" />
+  </head>
+  <body class="frame-body">
+    <div class="canvas" id="frame">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true"></div>
+          <div class="brand-name">storage<span>flow</span></div>
+        </div>
+        <div class="meta-pills">
+          <span class="pill accent">Modes</span>
+          <span class="pill on">Same plane</span>
+        </div>
+      </header>
+
+      <div class="main two-col" style="margin-top: 12px">
+        <div class="stack" style="gap: 18px">
+          <div>
+            <p class="eyebrow">Write path</p>
+            <h2 class="section-title" style="max-width: 16ch; margin-bottom: 12px">
+              Through. Or cache. Not two products.
+            </h2>
+            <p class="lede">
+              Write-through lands on the remote. Write-back lands in a local cache, then
+              flushes. The tenant and the doors stay the same.
+            </p>
+          </div>
+          <div class="tag-row">
+            <span class="tag hot">modes</span>
+            <span class="tag">write-through</span>
+            <span class="tag vault">write-back</span>
+          </div>
+        </div>
+
+        <div class="stack">
+          <div class="panel">
+            <div class="panel-head">
+              <span class="title">acme · acme-plain</span>
+              <span class="title" style="color: var(--phosphor)">one tree</span>
+            </div>
+            <div class="panel-body" style="padding: 0">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Mode</th>
+                    <th>Lands</th>
+                    <th>Use</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>write-through</td>
+                    <td>remote now</td>
+                    <td><span class="badge on">durable</span></td>
+                  </tr>
+                  <tr>
+                    <td>write-back</td>
+                    <td>cache, then remote</td>
+                    <td><span class="badge place">fast</span></td>
+                  </tr>
+                  <tr>
+                    <td>crypt</td>
+                    <td>ciphertext on remote</td>
+                    <td><span class="badge warn">optional</span></td>
+                  </tr>
+                  <tr>
+                    <td>object cluster</td>
+                    <td>not vendored</td>
+                    <td><span class="badge deny">no</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <footer class="frame-foot">
+        <span>Campaign · Modes</span>
+        <span>Write-through · write-back · same plane</span>
+      </footer>
+    </div>
+  </body>
+</html>

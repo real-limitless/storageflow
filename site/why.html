@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en" data-base="">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Why: storageflow</title>
+    <meta
+      name="description"
+      content="Every app should not grow its own disk. storageflow puts S3 and SFTP in front of backends you already operate."
+    />
+    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+    <link rel="stylesheet" href="assets/styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+    <header class="topbar" id="site-nav"></header>
+    <main>
+      <div class="wrap page-hero">
+        <p class="eyebrow">Act I · Perimeter</p>
+        <h1 class="page-title">Every app should not grow its own disk</h1>
+        <p class="lede">
+          A laptop folder is not a control plane. A copied object cluster is not a backend you
+          already operate. storageflow is the front door.
+        </p>
+      </div>
+
+      <section class="section">
+        <div class="wrap">
+          <div class="compare">
+            <div class="panel col bad">
+              <h3>Without storageflow</h3>
+              <ul>
+                <li>Each app keeps a private disk and a private password.</li>
+                <li>S3 clients and SFTP clients disagree about the same files.</li>
+                <li>One shared gateway means one shared failure domain.</li>
+                <li>Someone vendors a second object cluster to hold plain files.</li>
+              </ul>
+            </div>
+            <div class="panel col good">
+              <h3>With storageflow</h3>
+              <ul>
+                <li>S3 and SFTP see the same tenant bytes.</li>
+                <li>One gateway process per tenant.</li>
+                <li>Upstream secrets stay sealed on the plane.</li>
+                <li>The backing store is a remote you already run.</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="prose" style="margin-top: 36px">
+            <p>
+              <strong>The bytes are files.</strong> Crypt and chunking are optional layers. Plain
+              files sit underneath. Clients do not need the backend password.
+            </p>
+            <p>
+              <strong>The cluster is not here.</strong> storageflow does not vendor MinIO or
+              another distributed object store.
+            </p>
+            <p>
+              S3 in these docs means the API shape. This project is not affiliated with Amazon.
+            </p>
+          </div>
+
+          <div class="callout warn">
+            <strong>Honest limits.</strong> A tenant process is not a legal warranty of isolation.
+            DEVELOPMENT is not shipped. CORE is the concept.
+          </div>
+
+          <div class="btn-row" style="margin-top: 32px">
+            <a class="btn primary" href="how.html">How the plane works</a>
+            <a class="btn ghost" href="start.html">Install notes</a>
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer class="site-footer" id="site-footer"></footer>
+    </div>
+    <script src="assets/chrome.js"></script>
+    <script src="assets/site.js"></script>
+  </body>
+</html>

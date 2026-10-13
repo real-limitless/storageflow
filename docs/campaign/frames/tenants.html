@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Tenants: storageflow</title>
+    <link rel="stylesheet" href="../assets/styles.css" />
+  </head>
+  <body class="frame-body">
+    <div class="canvas" id="frame">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true"></div>
+          <div class="brand-name">storage<span>flow</span></div>
+        </div>
+        <div class="meta-pills">
+          <span class="pill accent">Tenants</span>
+          <span class="pill on">Own process</span>
+        </div>
+      </header>
+
+      <div class="main two-col" style="margin-top: 8px; gap: 36px">
+        <div>
+          <p class="eyebrow">Isolation</p>
+          <h2 class="section-title" style="margin-bottom: 12px; max-width: 16ch">
+            One process. Not a shared proxy.
+          </h2>
+          <p class="lede" style="margin-bottom: 20px">
+            If the proxy dies, every tenant dies with it. storageflow keeps the failure domain
+            on the tenant process.
+          </p>
+
+          <div class="panel">
+            <div class="panel-head"><span class="title">Tenant path</span></div>
+            <div class="panel-body ritual">
+              <div class="ritual-step">
+                <div class="step-idx">01</div>
+                <div>
+                  <div class="step-cmd">acme</div>
+                  <div class="step-note">Own gateway. Own key. Own buckets.</div>
+                </div>
+              </div>
+              <div class="ritual-step">
+                <div class="step-idx">02</div>
+                <div>
+                  <div class="step-cmd">northwind</div>
+                  <div class="step-note">A second process. Not a flag on the first.</div>
+                </div>
+              </div>
+              <div class="ritual-step">
+                <div class="step-idx">03</div>
+                <div>
+                  <div class="step-cmd">secrets</div>
+                  <div class="step-note">Backend password sealed. Never in the client.</div>
+                </div>
+              </div>
+              <div class="ritual-step">
+                <div class="step-idx">04</div>
+                <div>
+                  <div class="step-cmd">backend</div>
+                  <div class="step-note">SFTP or local files you already operate.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="stack" style="padding-top: 8px">
+          <div class="enroll">
+            <div class="enroll-step">
+              <div class="n">Door</div>
+              <div class="t">S3 or SFTP</div>
+              <div class="d">Same tenant. Two protocols.</div>
+            </div>
+            <div class="enroll-step">
+              <div class="n">Process</div>
+              <div class="t">gateway</div>
+              <div class="d">Isolation is a process.</div>
+            </div>
+            <div class="enroll-step">
+              <div class="n">Layers</div>
+              <div class="t">plain / crypt</div>
+              <div class="d">Chunker is optional.</div>
+            </div>
+            <div class="enroll-step">
+              <div class="n">Remote</div>
+              <div class="t">your files</div>
+              <div class="d">Not a vendored cluster.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <footer class="frame-foot">
+        <span>Campaign · Tenants</span>
+        <span>One gateway process per tenant</span>
+      </footer>
+    </div>
+  </body>
+</html>

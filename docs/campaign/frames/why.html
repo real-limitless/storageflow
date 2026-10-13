@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Why: storageflow</title>
+    <link rel="stylesheet" href="../assets/styles.css" />
+  </head>
+  <body class="frame-body">
+    <div class="canvas" id="frame">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true"></div>
+          <div class="brand-name">storage<span>flow</span></div>
+        </div>
+        <div class="meta-pills">
+          <span class="pill accent">Why it exists</span>
+          <span class="pill vault">Volume</span>
+        </div>
+      </header>
+
+      <div class="main" style="margin-top: 12px">
+        <p class="eyebrow">The failure mode we refuse</p>
+        <h2 class="section-title" style="max-width: 22ch; margin-bottom: 10px">
+          Every app should not grow its own disk.
+        </h2>
+        <p class="lede" style="margin-bottom: 28px">
+          A laptop folder is not a control plane. A copied object cluster is not a backend you
+          already operate.
+        </p>
+
+        <div class="compare">
+          <div class="panel col bad">
+            <h3>Without storageflow</h3>
+            <ul>
+              <li>Each app keeps a private disk and a private password.</li>
+              <li>S3 and SFTP disagree about the same files.</li>
+              <li>One shared gateway. One shared failure domain.</li>
+              <li>A second object cluster holds plain files.</li>
+            </ul>
+          </div>
+          <div class="panel col good">
+            <h3>With storageflow</h3>
+            <ul>
+              <li>S3 and SFTP see the same tenant bytes.</li>
+              <li>One gateway process per tenant.</li>
+              <li>Upstream secrets stay sealed on the plane.</li>
+              <li>The backing store is a remote you already run.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div
+          class="panel"
+          style="margin-top: 20px; padding: 16px 20px; display: flex; gap: 32px; align-items: center"
+        >
+          <div style="flex: 1">
+            <div
+              class="mono"
+              style="
+                font-size: 11px;
+                color: var(--accent-hot);
+                letter-spacing: 0.12em;
+                text-transform: uppercase;
+                margin-bottom: 6px;
+              "
+            >
+              The front door
+            </div>
+            <div style="font-size: 16px; line-height: 1.4; color: var(--ink)">
+              Clients get a tenant key. They do not get the backend password.
+            </div>
+          </div>
+          <div class="mono" style="font-size: 12px; color: var(--mute); text-align: right; line-height: 1.6">
+            Product class<br />
+            <span style="color: var(--phosphor)">S3 · SFTP · plain files</span>
+          </div>
+        </div>
+      </div>
+
+      <footer class="frame-foot">
+        <span>Campaign · Why</span>
+        <span>Apps should not grow disks</span>
+      </footer>
+    </div>
+  </body>
+</html>

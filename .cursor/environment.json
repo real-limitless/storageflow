@@ -1,0 +1,4 @@
+{
+  "name": "storageflow CORE",
+  "start": "bash .cursor/strip-cursor-attribution.sh"
+}
