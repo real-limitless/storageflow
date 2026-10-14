@@ -45,7 +45,6 @@ function fileNode(id: string, name: string): Node {
     color: null,
     sortOrder: 0,
     incomplete: false,
-    sortOrder: 0,
     cachedAt: "2026-03-01T12:00:00.000Z",
   };
 }
