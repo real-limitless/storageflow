@@ -1,3 +1,14 @@
 {
-  "start": "bash scripts/strip-cursor-attribution.sh"
+  "name": "storageflow",
+  "user": "ubuntu",
+  "install": "bash scripts/cloud-agent-install.sh",
+  "start": "bash scripts/cloud-agent-start.sh",
+  "ports": [
+    { "name": "cabinet", "port": 5173 },
+    { "name": "api", "port": 8787 },
+    { "name": "sftpgo", "port": 5179 },
+    { "name": "admin-s3", "port": 8794 },
+    { "name": "acme-s3", "port": 8795 },
+    { "name": "sftp", "port": 2022 }
+  ]
 }
