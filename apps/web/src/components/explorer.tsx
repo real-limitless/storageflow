@@ -22,6 +22,7 @@ import {
   type Node,
   type Preferences,
   type Project,
+  type RagAnswer,
   type SearchHit,
 } from "@storageflow/domain";
 import { ChevronRight, File, FileText, Folder, FolderOpen, Image as ImageIcon, LayoutGrid, List, Star, Table2, Upload } from "lucide-react";
@@ -133,6 +134,9 @@ export function ExplorerPage() {
   const [renameValue, setRenameValue] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
   const uploadParent = useRef("");
+  const [semanticHits, setSemanticHits] = useState<SearchHit[] | null>(null);
+  const [ragAnswer, setRagAnswer] = useState("");
+  const [semanticState, setSemanticState] = useState<"idle" | "hits" | "empty" | "denied">("idle");
   const paneTimer = useRef<number | undefined>(undefined);
   const tabsRef = useRef<LocationTab[]>([]);
   const closedTabs = useRef<Map<string, LocationTab>>(new Map());
@@ -307,7 +311,14 @@ export function ExplorerPage() {
     });
   }, [search.select, drawers.data, tree.data, listing.data]);
 
+  function resetSemantic() {
+    setSemanticHits(null);
+    setRagAnswer("");
+    setSemanticState("idle");
+  }
+
   function patchSearch(patch: Partial<ExplorerSearch>) {
+    if (patch.mode && patch.mode !== search.mode) resetSemantic();
     const next = { ...search, ...patch };
     if (drawerId && folderId) {
       void navigate({ to: "/app/p/$projectId/d/$drawerId/f/$folderId", params: { projectId, drawerId, folderId }, search: next });
@@ -325,6 +336,50 @@ export function ExplorerPage() {
       params: { projectId, drawerId: drawer.id, folderId: drawer.rootFolderId },
       search: { ...search, select: drawer.id },
     });
+  }
+
+  async function runSemanticSearch() {
+    if (!projectId) return;
+    setNameSearching(true);
+    setRagAnswer("");
+    try {
+      const found = await api<SearchHit[]>(`/projects/${projectId}/search/semantic?q=${encodeURIComponent(nameQuery)}`);
+      setSemanticHits(found);
+      setSemanticState(found.length ? "hits" : "empty");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 403) {
+        setSemanticHits([]);
+        setSemanticState("denied");
+        return;
+      }
+      toast.error(error instanceof Error ? error.message : "Search failed");
+    } finally {
+      setNameSearching(false);
+    }
+  }
+
+  async function askCabinet() {
+    if (!projectId) return;
+    setNameSearching(true);
+    try {
+      const result = await api<RagAnswer>(`/projects/${projectId}/ask`, {
+        method: "POST",
+        body: JSON.stringify({ question: nameQuery }),
+      });
+      setRagAnswer(result.answer);
+      setSemanticHits(result.hits);
+      setSemanticState(result.hits.length ? "hits" : "empty");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 403) {
+        setRagAnswer("");
+        setSemanticHits([]);
+        setSemanticState("denied");
+        return;
+      }
+      toast.error(error instanceof Error ? error.message : "Ask failed");
+    } finally {
+      setNameSearching(false);
+    }
   }
 
   function openFolder(id: string) {
@@ -970,10 +1025,15 @@ export function ExplorerPage() {
               onAction={runRibbon}
               searchValue={nameQuery}
               onSearchValue={setNameQuery}
-              onSearch={() => void runNameSearch()}
-              hits={nameHits}
+              onSearch={() => void (search.mode === "semantic" ? runSemanticSearch() : runNameSearch())}
+              hits={search.mode === "semantic" ? semanticHits : nameHits}
               searching={nameSearching}
               onOpenHit={openHit}
+              searchMode={search.mode}
+              onSearchMode={(mode) => patchSearch({ mode })}
+              onAsk={() => void askCabinet()}
+              semanticState={semanticState}
+              ragAnswer={ragAnswer}
             />
             <LocationBar
               crumbs={crumbs}

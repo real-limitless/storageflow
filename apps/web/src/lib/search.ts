@@ -1,3 +1,5 @@
+export type CabinetSearchMode = "name" | "semantic";
+
 export interface ExplorerSearch {
   df: string;
   dc: string;
@@ -9,6 +11,11 @@ export interface ExplorerSearch {
   dir: "asc" | "desc";
   view?: "grid" | "list" | "details";
   select: string;
+  mode: CabinetSearchMode;
+}
+
+export function searchMode(value: unknown): CabinetSearchMode {
+  return value === "semantic" ? "semantic" : "name";
 }
 
 export function validateExplorerSearch(search: Record<string, unknown>): ExplorerSearch {
@@ -25,5 +32,6 @@ export function validateExplorerSearch(search: Record<string, unknown>): Explore
     dir: search.dir === "desc" ? "desc" : "asc",
     view,
     select: text("select"),
+    mode: searchMode(search.mode),
   };
 }

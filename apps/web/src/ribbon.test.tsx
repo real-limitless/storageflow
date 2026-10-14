@@ -209,6 +209,43 @@ describe("selection enabling", () => {
   });
 });
 
+describe("search ribbon", () => {
+  it("puts Name and Semantic on one Search row", async () => {
+    const user = userEvent.setup();
+    const onSearchMode = vi.fn();
+    const onAsk = vi.fn();
+    render(
+      <FileCenterRibbon
+        tab="Search"
+        onTabChange={vi.fn()}
+        selection={emptySelection}
+        onAction={vi.fn()}
+        searchValue="quarterly bill"
+        onSearchValue={vi.fn()}
+        onSearch={vi.fn()}
+        hits={null}
+        searching={false}
+        onOpenHit={vi.fn()}
+        searchMode="semantic"
+        onSearchMode={onSearchMode}
+        onAsk={onAsk}
+        semanticState="idle"
+        ragAnswer=""
+      />,
+    );
+    expect(screen.getByRole("tab", { name: "Search" }).getAttribute("aria-selected")).toBe("true");
+    const row = screen.getByTestId("ribbon-search-row");
+    expect(row.getAttribute("data-ribbon-rows")).toBe("1");
+    expect(row.style.flexWrap).toBe("nowrap");
+    expect(screen.getByRole("group", { name: "Search mode" }).getAttribute("data-search-mode")).toBe("semantic");
+    expect(screen.getByRole("button", { name: "Semantic" }).getAttribute("aria-pressed")).toBe("true");
+    await user.click(screen.getByRole("button", { name: "Name" }));
+    expect(onSearchMode).toHaveBeenCalledWith("name");
+    await user.click(screen.getByRole("button", { name: "Ask" }));
+    expect(onAsk).toHaveBeenCalled();
+  });
+});
+
 describe("detail column headers", () => {
   it("labels item type and date modified", () => {
     expect(DETAIL_COLUMN_HEADERS).toEqual(["Name", "Size", "Item type", "Date modified", "Color", "Star"]);
