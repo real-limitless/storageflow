@@ -599,6 +599,21 @@ test("users, scoped keys, versions, reorder, and audit", async () => {
     ordered.json.files.filter((node: { name: string }) => node.name === "a.txt" || node.name === "b.txt").map((node: { name: string }) => node.name),
     ["b.txt", "a.txt"],
   );
+  const shelf = await call("POST", `/drawers/${drawer.json.id}/folders`, { json: { parentId: drawer.json.rootFolderId, name: "Shelf" } });
+  const shelfA = await upload(drawer.json.id, shelf.json.id, "a.txt", "a");
+  const shelfB = await upload(drawer.json.id, shelf.json.id, "b.txt", "b");
+  const alphabetical = await call("GET", `/drawers/${drawer.json.id}/list?folderId=${shelf.json.id}&sort=name`);
+  assert.deepEqual(
+    alphabetical.json.files.map((node: { name: string }) => node.name),
+    ["a.txt", "b.txt"],
+  );
+  const moved = await call("POST", "/nodes/reorder", { json: { parentId: shelf.json.id, ids: [shelfB.id, shelfA.id] } });
+  assert.equal(moved.status, 200, JSON.stringify(moved.json));
+  const manual = await call("GET", `/drawers/${drawer.json.id}/list?folderId=${shelf.json.id}&sort=name`);
+  assert.deepEqual(
+    manual.json.files.map((node: { name: string }) => node.name),
+    ["b.txt", "a.txt"],
+  );
 
   const carol = await call("POST", "/admin/users", {
     json: { email: "carol@acme.test", name: "Carol", password: "correct-horse" },
