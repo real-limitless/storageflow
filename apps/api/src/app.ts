@@ -51,7 +51,7 @@ import {
   switchTenant,
   updateProfile,
 } from "./services/account.js";
-import { createTeamUser, deleteTeamUser, disableTeamUser, issueApiKey, listAudit, readRetention, updateRetention } from "./services/admin.js";
+import { createTeamUser, deleteTeamUser, disableTeamUser, issueApiKey, listAudit, listTeamUsers, readRetention, updateRetention } from "./services/admin.js";
 import { listFileVersions, openFileVersion, restoreFileVersion } from "./services/versions.js";
 import { createGrant, listGrants, openPortal, portalActivity, portalHome, revokeGrant } from "./services/sharing.js";
 import { catalog, createTicket, publicMetadata, publishFile, readTicket, reportAbuse, streamTicket, unpublish, updateTransferSettings } from "./services/transfer.js";
@@ -317,6 +317,8 @@ export function createApp(deps: Deps) {
     const session = c.get("session");
     return c.json(await getMe(deps, users[0], session?.active_tenant_id ? String(session.active_tenant_id) : null));
   });
+
+  app.get("/admin/users", async (c) => c.json(await listTeamUsers(deps, await member(c))));
 
   app.post("/admin/users", async (c) => c.json(await createTeamUser(deps, await member(c), await readBody(c)), 201));
 

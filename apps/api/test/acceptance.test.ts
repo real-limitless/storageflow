@@ -503,6 +503,12 @@ test("users, scoped keys, versions, reorder, and audit", async () => {
   assert.equal(bobAgain.status, 403, JSON.stringify(bobAgain.json));
   const bobStill = await call("GET", "/me", { jar: bobJar });
   assert.equal(bobStill.status, 401, JSON.stringify(bobStill.json));
+  const directory = await call("GET", "/admin/users");
+  assert.equal(directory.status, 200, JSON.stringify(directory.json));
+  const listedBob = directory.json.find((user: { email: string }) => user.email === "bob@acme.test");
+  assert.equal(listedBob?.email, "bob@acme.test");
+  assert.ok(listedBob?.disabledAt);
+  assert.equal(directory.json.some((user: { email: string }) => user.email === "ada@acme.test"), true);
 
   const service = await call("POST", "/admin/users", { json: { email: "ci@acme.test", name: "CI", kind: "service" } });
   assert.equal(service.status, 201, JSON.stringify(service.json));
@@ -541,9 +547,14 @@ test("users, scoped keys, versions, reorder, and audit", async () => {
     json: { folderId: drawer.json.rootFolderId, name: "nope.txt", size: 1, contentType: "text/plain" },
   });
   assert.equal(uploadDenied.status, 403, JSON.stringify(uploadDenied.json));
+  const hiddenDirectory = await call("GET", "/admin/users", { authorization: `Bearer ${issued.json.token}`, jar: new Jar() });
+  assert.equal(hiddenDirectory.status, 403, JSON.stringify(hiddenDirectory.json));
 
   const retention = await call("PATCH", "/admin/retention", { json: { count: 2 } });
   assert.equal(retention.json.count, 2);
+  const retentionRead = await call("GET", "/admin/retention");
+  assert.equal(retentionRead.status, 200, JSON.stringify(retentionRead.json));
+  assert.equal(retentionRead.json.count, 2);
   const versioned = await upload(drawer.json.id, drawer.json.rootFolderId, "notes.txt", "one");
   await upload(drawer.json.id, drawer.json.rootFolderId, "notes.txt", "two");
   await upload(drawer.json.id, drawer.json.rootFolderId, "notes.txt", "three");

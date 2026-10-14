@@ -4,6 +4,7 @@ import { Toaster } from "sonner";
 import { ExplorerPage } from "@/components/explorer";
 import { validateExplorerSearch } from "@/lib/search";
 import { AccountPage } from "@/routes/account";
+import { AdminPage } from "@/routes/admin";
 import { CatalogPage, DownloadPage } from "@/routes/public";
 import { PortalPage } from "@/routes/portal";
 import { SettingsPage } from "@/routes/settings";
@@ -75,6 +76,12 @@ const accountRoute = createRoute({
   component: AccountPage,
 });
 
+const adminRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "admin",
+  component: AdminPage,
+});
+
 const portalRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/portal/$slug",
@@ -106,7 +113,7 @@ const catalogRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   indexRoute,
   signInRoute,
-  appRoute.addChildren([appIndexRoute, projectRoute, explorerRoute, settingsRoute, accountRoute]),
+  appRoute.addChildren([appIndexRoute, projectRoute, explorerRoute, settingsRoute, accountRoute, adminRoute]),
   portalRoute,
   portalFolderRoute,
   downloadRoute,
