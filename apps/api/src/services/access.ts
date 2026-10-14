@@ -6,6 +6,7 @@ import type { AppConfig } from "../config.js";
 import { decryptString } from "../crypto.js";
 import type { Db } from "../db.js";
 import { HttpError, asBool, asNumber } from "../http.js";
+import type { Answerer, Embedder } from "../embed.js";
 import type { JobQueue } from "../jobs.js";
 import type { AdapterResolver } from "../adapters.js";
 import { verbsFromRow, type Row } from "../mappers.js";
@@ -15,6 +16,8 @@ export interface Deps {
   adapters: AdapterResolver;
   config: AppConfig;
   jobs: JobQueue;
+  embedder: Embedder;
+  answerer: Answerer;
   now: () => Date;
 }
 

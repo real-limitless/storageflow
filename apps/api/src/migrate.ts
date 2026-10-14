@@ -19,6 +19,7 @@ export async function migrate(db: Db): Promise<void> {
     await mark(db, "001");
     await mark(db, "002");
     await mark(db, "003");
+    await mark(db, "004");
     return;
   }
   if (!applied.has("002")) {
@@ -30,5 +31,10 @@ export async function migrate(db: Db): Promise<void> {
     const sql = fs.readFileSync(new URL("./migrations/003.sql", import.meta.url), "utf8");
     await db.exec(sql);
     await mark(db, "003");
+  }
+  if (!applied.has("004")) {
+    const sql = fs.readFileSync(new URL("./migrations/004.sql", import.meta.url), "utf8");
+    await db.exec(sql);
+    await mark(db, "004");
   }
 }

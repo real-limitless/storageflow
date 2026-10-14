@@ -27,6 +27,12 @@ export interface AppConfig {
   seedName: string;
   tenantSlug: string;
   tenantName: string;
+  embeddingUrl: string;
+  embeddingApiKey: string;
+  embeddingModel: string;
+  answerUrl: string;
+  answerApiKey: string;
+  answerModel: string;
 }
 
 function readTenants(secretsDir: string, tenant: string): { accessKey: string; secretKey: string } {
@@ -78,5 +84,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     seedName: env.SEED_NAME ?? "Ada",
     tenantSlug,
     tenantName: env.HOSTED_TENANT_NAME ?? "Acme",
+    embeddingUrl: env.EMBEDDING_URL ?? "",
+    embeddingApiKey: env.EMBEDDING_API_KEY ?? "",
+    embeddingModel: env.EMBEDDING_MODEL ?? "text-embedding-3-small",
+    answerUrl: env.ANSWER_URL ?? "",
+    answerApiKey: env.ANSWER_API_KEY ?? "",
+    answerModel: env.ANSWER_MODEL ?? "gpt-4o-mini",
   };
 }

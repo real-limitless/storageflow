@@ -8,6 +8,7 @@ import { createResolver } from "../src/adapters.js";
 import type { AppConfig } from "../src/config.js";
 import { decryptString } from "../src/crypto.js";
 import { openDatabase } from "../src/db.js";
+import { createExtractiveAnswerer, createHashEmbedder, EMBEDDING_DIMENSIONS, type Embedder } from "../src/embed.js";
 import { JobQueue } from "../src/jobs.js";
 import { migrate } from "../src/migrate.js";
 import type { Deps } from "../src/services/access.js";
@@ -42,6 +43,12 @@ function config(): AppConfig {
     seedName: "Ada",
     tenantSlug: "acme",
     tenantName: "Acme",
+    embeddingUrl: "",
+    embeddingApiKey: "",
+    embeddingModel: "",
+    answerUrl: "",
+    answerApiKey: "",
+    answerModel: "",
   };
 }
 
@@ -85,6 +92,8 @@ test("cabinet, portal, and public transfer", async () => {
     adapters: createResolver("memory"),
     config: config(),
     jobs,
+    embedder: createHashEmbedder(),
+    answerer: createExtractiveAnswerer(),
     now: () => new Date(current),
   };
   const app = createApp(deps);
@@ -430,11 +439,27 @@ test("migration 002 upgrades a database that already has 001", async () => {
   const mfa = await db.query<{ mfa_enabled: boolean }>("SELECT mfa_enabled FROM users WHERE id = $1", [userId]);
   assert.equal(mfa[0]?.mfa_enabled, false);
   const applied = await db.query<{ id: string }>("SELECT id FROM schema_migrations ORDER BY id");
-  assert.deepEqual(applied.map((row) => row.id), ["001", "002", "003"]);
+  assert.deepEqual(applied.map((row) => row.id), ["001", "002", "003", "004"]);
+  await db.query("SELECT node_id, content, embedding FROM embeddings");
   await migrate(db);
   const again = await db.query<{ id: string }>("SELECT id FROM schema_migrations ORDER BY id");
-  assert.deepEqual(again.map((row) => row.id), ["001", "002", "003"]);
+  assert.deepEqual(again.map((row) => row.id), ["001", "002", "003", "004"]);
   await db.close();
+
+  const upgraded = await openDatabase("pglite:");
+  await upgraded.exec(legacy);
+  await upgraded.exec(fs.readFileSync(new URL("../src/migrations/002.sql", import.meta.url), "utf8"));
+  await upgraded.exec("CREATE TABLE schema_migrations (id text PRIMARY KEY, applied_at timestamptz NOT NULL)");
+  await upgraded.query("INSERT INTO schema_migrations (id, applied_at) VALUES ('001', CURRENT_TIMESTAMP), ('002', CURRENT_TIMESTAMP)");
+  await migrate(upgraded);
+  const ids = await upgraded.query<{ id: string }>("SELECT id FROM schema_migrations ORDER BY id");
+  assert.deepEqual(ids.map((row) => row.id), ["001", "002", "003", "004"]);
+  await upgraded.query("SELECT embedding FROM embeddings");
+  await upgraded.query("SELECT mfa_enabled FROM users");
+  await migrate(upgraded);
+  const kept = await upgraded.query<{ id: string }>("SELECT id FROM schema_migrations ORDER BY id");
+  assert.deepEqual(kept.map((row) => row.id), ["001", "002", "003", "004"]);
+  await upgraded.close();
 });
 
 test("users, scoped keys, versions, reorder, and audit", async () => {
@@ -446,6 +471,8 @@ test("users, scoped keys, versions, reorder, and audit", async () => {
     adapters: createResolver("memory"),
     config: config(),
     jobs,
+    embedder: createHashEmbedder(),
+    answerer: createExtractiveAnswerer(),
     now: () => new Date("2026-10-14T12:00:00Z"),
   };
   const app = createApp(deps);
@@ -647,6 +674,8 @@ test("sign-up plus create-tenant yields an owner membership", async () => {
     adapters: createResolver("memory"),
     config: config(),
     jobs: new JobQueue(),
+    embedder: createHashEmbedder(),
+    answerer: createExtractiveAnswerer(),
     now: () => new Date("2026-10-14T12:00:00Z"),
   };
   const app = createApp(deps);
@@ -710,10 +739,10 @@ test("migration 003 adds MFA columns when 002 is already applied", async () => {
   await db.query("SELECT code_cipher, used_at FROM mfa_recovery_codes");
   await db.query("SELECT token_hash, expires_at FROM mfa_challenges");
   const applied = await db.query<{ id: string }>("SELECT id FROM schema_migrations ORDER BY id");
-  assert.deepEqual(applied.map((row) => row.id), ["001", "002", "003"]);
+  assert.deepEqual(applied.map((row) => row.id), ["001", "002", "003", "004"]);
   await migrate(db);
   const again = await db.query<{ id: string }>("SELECT id FROM schema_migrations ORDER BY id");
-  assert.deepEqual(again.map((row) => row.id), ["001", "002", "003"]);
+  assert.deepEqual(again.map((row) => row.id), ["001", "002", "003", "004"]);
   await db.close();
 });
 
@@ -726,6 +755,8 @@ test("mfa enroll, rejected code, recovery code, and audit", async () => {
     adapters: createResolver("memory"),
     config: config(),
     jobs: new JobQueue(),
+    embedder: createHashEmbedder(),
+    answerer: createExtractiveAnswerer(),
     now: () => now,
   };
   const app = createApp(deps);
@@ -842,6 +873,157 @@ test("mfa enroll, rejected code, recovery code, and audit", async () => {
   const memberAudit = await call("GET", "/audit", { jar: memberJar });
   assert.equal(memberAudit.status, 403, JSON.stringify(memberAudit.json));
   assert.equal(member.json.role, "member");
+
+  await db.close();
+});
+
+function fakeEmbedder(): Embedder {
+  return {
+    dimensions: EMBEDDING_DIMENSIONS,
+    async embed(texts) {
+      return texts.map((text) => {
+        const vector = new Array<number>(EMBEDDING_DIMENSIONS).fill(0);
+        const lower = text.toLowerCase();
+        if (/\b(invoice|unpaid|bill|4200|acme)\b/.test(lower)) vector[0] += 1;
+        if (/\b(banana|bread|recipe|kitchen)\b/.test(lower)) vector[1] += 1;
+        const magnitude = Math.hypot(...vector);
+        return magnitude === 0 ? vector : vector.map((value) => value / magnitude);
+      });
+    },
+  };
+}
+
+test("semantic search indexes uploads, answers from them, and hides nodes outside a grant", async () => {
+  const db = await openDatabase("pglite:");
+  await migrate(db);
+  const applied = await db.query<{ id: string }>("SELECT id FROM schema_migrations ORDER BY id");
+  assert.deepEqual(
+    applied.map((row) => row.id),
+    ["001", "002", "003", "004"],
+  );
+  const jobs = new JobQueue();
+  const deps: Deps = {
+    db,
+    adapters: createResolver("memory"),
+    config: config(),
+    jobs,
+    embedder: fakeEmbedder(),
+    answerer: createExtractiveAnswerer(),
+    now: () => new Date("2026-10-14T15:00:00Z"),
+  };
+  const app = createApp(deps);
+  const jar = new Jar();
+
+  async function call(method: string, path: string, options?: { json?: unknown; raw?: Uint8Array; jar?: Jar }) {
+    const used = options?.jar ?? jar;
+    const headers = new Headers();
+    const cookie = used.header();
+    if (cookie) headers.set("cookie", cookie);
+    let body: Uint8Array | string | undefined;
+    if (options?.raw) {
+      body = options.raw;
+      headers.set("content-length", String(options.raw.byteLength));
+    } else if (options?.json !== undefined) {
+      body = JSON.stringify(options.json);
+      headers.set("content-type", "application/json");
+    }
+    const response = await app.request(path, { method, headers, body: body as BodyInit | undefined });
+    used.absorb(response);
+    return bodyOf(response);
+  }
+
+  async function upload(drawerId: string, folderId: string, name: string, text: string) {
+    const bytes = new TextEncoder().encode(text);
+    const started = await call("POST", `/drawers/${drawerId}/uploads`, {
+      json: { folderId, name, size: bytes.byteLength, contentType: "text/plain" },
+    });
+    assert.equal(started.status, 201, JSON.stringify(started.json));
+    const put = await call("PUT", `/uploads/${started.json.uploadId}/body`, { raw: bytes });
+    assert.equal(put.status, 204, JSON.stringify(put.json));
+    const done = await call("POST", `/uploads/${started.json.uploadId}/complete`, { json: {} });
+    assert.equal(done.status, 200, JSON.stringify(done.json));
+    await jobs.whenIdle();
+    return done.json as { id: string; name: string };
+  }
+
+  const created = await call("POST", "/users", { json: { email: "ada@acme.test", name: "Ada", password: "correct-horse" } });
+  assert.equal(created.status, 201, JSON.stringify(created.json));
+  await call("POST", "/tenants", { json: { name: "Acme", slug: "acme" } });
+  const project = await call("POST", "/projects", { json: { name: "Work", kind: "work" } });
+  const drawer = await call("POST", `/projects/${project.json.id}/drawers`, { json: { name: "Client files", mode: "hosted" } });
+  const invoice = await upload(drawer.json.id, drawer.json.rootFolderId, "q3-notes.txt", "The acme invoice total is 4200 dollars");
+  const recipe = await upload(drawer.json.id, drawer.json.rootFolderId, "kitchen.txt", "banana bread uses ripe bananas");
+
+  const indexed = await db.query<{ name: string; content: string; embedding: string }>(
+    `SELECT n.name, e.content, e.embedding::text AS embedding
+     FROM embeddings e JOIN nodes n ON n.id = e.node_id
+     ORDER BY n.name`,
+  );
+  assert.equal(indexed.length, 2);
+  const invoiceRow = indexed.find((row) => row.name === "q3-notes.txt");
+  const recipeRow = indexed.find((row) => row.name === "kitchen.txt");
+  assert.ok(invoiceRow);
+  assert.match(invoiceRow.content, /4200/);
+  assert.match(String(invoiceRow.embedding), /^\[1/);
+  assert.ok(recipeRow);
+  assert.match(recipeRow.content, /banana/);
+
+  const byName = await call("GET", `/projects/${project.json.id}/search?q=${encodeURIComponent("unpaid bill")}`);
+  assert.equal(byName.status, 200, JSON.stringify(byName.json));
+  assert.equal(byName.json.length, 0);
+  const named = await call("GET", `/projects/${project.json.id}/search?q=kitchen`);
+  assert.equal(named.json.some((hit: { node: { name: string } }) => hit.node.name === "kitchen.txt"), true);
+
+  const semantic = await call("GET", `/projects/${project.json.id}/search/semantic?q=${encodeURIComponent("unpaid bill")}`);
+  assert.equal(semantic.status, 200, JSON.stringify(semantic.json));
+  assert.deepEqual(
+    semantic.json.map((hit: { node: { id: string } }) => hit.node.id),
+    [invoice.id],
+  );
+  assert.ok(semantic.json[0].score > 0.4);
+
+  const asked = await call("POST", `/projects/${project.json.id}/ask`, { json: { question: "What is the unpaid bill?" } });
+  assert.equal(asked.status, 200, JSON.stringify(asked.json));
+  assert.match(asked.json.answer, /4200/);
+  assert.equal(asked.json.hits.some((hit: { node: { id: string } }) => hit.node.id === recipe.id), false);
+
+  const empty = await call("GET", `/projects/${project.json.id}/search/semantic?q=${encodeURIComponent("zzzznotaword")}`);
+  assert.equal(empty.status, 200, JSON.stringify(empty.json));
+  assert.equal(empty.json.length, 0);
+
+  const bea = await call("POST", "/admin/users", { json: { email: "bea@acme.test", name: "Bea", password: "correct-horse" } });
+  assert.equal(bea.status, 201, JSON.stringify(bea.json));
+  const grant = await call("POST", `/nodes/${invoice.id}/grants`, { json: { userId: bea.json.id, verbs: ["list"] } });
+  assert.equal(grant.status, 201, JSON.stringify(grant.json));
+  const beaJar = new Jar();
+  const beaSession = await call("POST", "/sessions", { json: { email: "bea@acme.test", password: "correct-horse" }, jar: beaJar });
+  assert.equal(beaSession.status, 200, JSON.stringify(beaSession.json));
+
+  const beaBill = await call("GET", `/projects/${project.json.id}/search/semantic?q=${encodeURIComponent("unpaid bill")}`, { jar: beaJar });
+  assert.equal(beaBill.status, 200, JSON.stringify(beaBill.json));
+  assert.deepEqual(
+    beaBill.json.map((hit: { node: { id: string } }) => hit.node.id),
+    [invoice.id],
+  );
+  const beaRecipe = await call("GET", `/projects/${project.json.id}/search/semantic?q=${encodeURIComponent("banana bread")}`, { jar: beaJar });
+  assert.equal(beaRecipe.status, 200, JSON.stringify(beaRecipe.json));
+  assert.equal(beaRecipe.json.length, 0);
+  const beaAsk = await call("POST", `/projects/${project.json.id}/ask`, { json: { question: "How do I bake banana bread?" }, jar: beaJar });
+  assert.equal(beaAsk.status, 200, JSON.stringify(beaAsk.json));
+  assert.equal(beaAsk.json.hits.length, 0);
+  assert.doesNotMatch(beaAsk.json.answer, /banana/i);
+
+  const cara = await call("POST", "/admin/users", { json: { email: "cara@acme.test", name: "Cara", password: "correct-horse" } });
+  const caraJar = new Jar();
+  await call("POST", "/sessions", { json: { email: "cara@acme.test", password: "correct-horse" }, jar: caraJar });
+  const denied = await call("GET", `/projects/${project.json.id}/search/semantic?q=${encodeURIComponent("unpaid bill")}`, { jar: caraJar });
+  assert.equal(denied.status, 403, JSON.stringify(denied.json));
+  assert.match(denied.json.error.message, /do not have access/);
+  const deniedAsk = await call("POST", `/projects/${project.json.id}/ask`, { json: { question: "What is the unpaid bill?" }, jar: caraJar });
+  assert.equal(deniedAsk.status, 403, JSON.stringify(deniedAsk.json));
+
+  const ownerRecipe = await call("GET", `/projects/${project.json.id}/search/semantic?q=${encodeURIComponent("banana bread")}`);
+  assert.equal(ownerRecipe.json.some((hit: { node: { id: string } }) => hit.node.id === recipe.id), true);
 
   await db.close();
 });

@@ -1,4 +1,5 @@
 import { PGlite } from "@electric-sql/pglite";
+import { vector } from "@electric-sql/pglite/vector";
 import pg from "pg";
 
 export interface Db {
@@ -11,7 +12,10 @@ export interface Db {
 export async function openDatabase(databaseUrl: string): Promise<Db> {
   if (!databaseUrl || databaseUrl.startsWith("pglite:")) {
     const dir = databaseUrl.startsWith("pglite:") ? databaseUrl.slice("pglite:".length) || undefined : undefined;
-    const client = dir ? new PGlite(dir) : new PGlite();
+    const client = new PGlite({
+      ...(dir ? { dataDir: dir } : {}),
+      extensions: { vector },
+    });
     await client.waitReady;
     const wrap = (queryable: { query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }> }, nested = false): Db => ({
       async query(sql, params) {
