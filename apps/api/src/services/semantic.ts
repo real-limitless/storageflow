@@ -138,18 +138,20 @@ export async function indexUploadedFile(
   } catch {
     body = "";
   }
-  const source = `${String(node.name)}\n${body}`.trim();
-  const parts = chunksOf(source);
-  if (!parts.length) return;
-  const vectors = await deps.embedder.embed(parts);
+  const name = String(node.name);
+  const readable = body.trim() || name;
+  const embedded = chunksOf(body.trim() ? `${name}\n${readable}` : name);
+  const shown = chunksOf(readable);
+  if (!embedded.length) return;
+  const vectors = await deps.embedder.embed(embedded);
   const now = deps.now().toISOString();
   await deps.db.query(`DELETE FROM embeddings WHERE node_id = $1`, [input.nodeId]);
-  for (let index = 0; index < parts.length; index += 1) {
+  for (let index = 0; index < embedded.length; index += 1) {
     const vector = fitDimensions(vectors[index] ?? [], EMBEDDING_DIMENSIONS);
     await deps.db.query(
       `INSERT INTO embeddings (id, tenant_id, project_id, node_id, chunk_index, content, embedding, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7::vector, $8)`,
-      [crypto.randomUUID(), input.tenantId, input.projectId, input.nodeId, index, parts[index], vectorLiteral(vector), now],
+      [crypto.randomUUID(), input.tenantId, input.projectId, input.nodeId, index, shown[index] ?? embedded[index], vectorLiteral(vector), now],
     );
   }
 }
