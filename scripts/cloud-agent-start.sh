@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
-# Boot hook hygiene, the Docker daemon, and the Compose stack.
+# Boot the Docker daemon and the Compose stack.
 set -euo pipefail
 root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 cd "$root"
 export PATH="/usr/local/bin:$PATH"
-
-bash "$root/scripts/strip-cursor-attribution.sh"
 
 # Compose bind-mounts ./data. A previous root-owned daemon can leave that
 # directory unwritable, and init-secrets.sh then cannot create data/media.

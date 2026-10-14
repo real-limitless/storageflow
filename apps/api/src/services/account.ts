@@ -1,9 +1,9 @@
 import crypto from "node:crypto";
 import { DEFAULT_TRANSFER_SETTINGS, type Me, type Membership, type Preferences, type ProjectMember, type TransferPlan } from "@storageflow/domain";
 import { hashPassword, secretToken, sha256, slugify, verifyPassword } from "../crypto.js";
-import { HttpError, asNumber } from "../http.js";
+import { HttpError, asBool, asNumber } from "../http.js";
 import { defaultPreferences, mapMember, mapPreferences, mapSettings, type Row } from "../mappers.js";
-import { membershipRole, recordActivity, requireProject, type Deps, type MemberActor } from "./access.js";
+import { membershipRole, recordActivity, recordAudit, requireProject, type Deps, type MemberActor } from "./access.js";
 
 export async function insertTransferSettings(deps: Deps, tenantId: string): Promise<void> {
   const settings = DEFAULT_TRANSFER_SETTINGS;
@@ -97,6 +97,7 @@ export async function getMe(deps: Deps, user: Row, tenantId: string | null): Pro
       email: String(user.email),
       name: String(user.name),
       transferPlan: String(user.transfer_plan) as TransferPlan,
+      mfaEnabled: asBool(user.mfa_enabled),
     },
     memberships,
     activeTenant: active ? { id: active.tenantId, slug: active.tenantSlug, name: active.tenantName, role: active.role } : null,
@@ -134,14 +135,55 @@ export async function signUp(deps: Deps, body: Record<string, unknown>): Promise
   return rows[0];
 }
 
-function accountCanUsePassword(user: Row): void {
+export function accountCanUsePassword(user: Row): void {
   if (String(user.kind) === "service") {
     throw new HttpError(401, "unauthorized", "Service accounts sign in with an API key");
   }
   if (user.disabled_at) throw new HttpError(403, "disabled", "This account is disabled");
 }
 
-export async function signIn(deps: Deps, email: string, password: string): Promise<{ token: string; user: Row; tenantId: string | null }> {
+export type PasswordSignIn =
+  | { mfaRequired: true; challenge: string }
+  | { mfaRequired: false; token: string; user: Row; tenantId: string | null };
+
+const MFA_CHALLENGE_MS = 5 * 60 * 1000;
+
+async function issueMfaChallenge(deps: Deps, userId: string): Promise<string> {
+  const token = secretToken();
+  const now = deps.now();
+  await deps.db.query(`INSERT INTO mfa_challenges (token_hash, user_id, expires_at, created_at) VALUES ($1,$2,$3,$4)`, [
+    sha256(token),
+    userId,
+    new Date(now.getTime() + MFA_CHALLENGE_MS).toISOString(),
+    now.toISOString(),
+  ]);
+  return token;
+}
+
+async function finishSignIn(deps: Deps, user: Row, method: "password" | "magic"): Promise<PasswordSignIn> {
+  if (asBool(user.mfa_enabled)) {
+    return { mfaRequired: true, challenge: await issueMfaChallenge(deps, String(user.id)) };
+  }
+  const memberships = await membershipsOf(deps, String(user.id));
+  const tenantId = memberships[0]?.tenantId ?? null;
+  const token = await createSession(deps, { userId: String(user.id), tenantId, kind: "member" });
+  if (tenantId) {
+    if (method === "password") {
+      await recordActivity(deps, { tenantId, actorUserId: String(user.id), actorEmail: String(user.email), kind: "sign-in", detail: {} });
+    }
+    await recordAudit(deps, {
+      tenantId,
+      actorUserId: String(user.id),
+      action: "sign-in",
+      targetType: "user",
+      targetId: String(user.id),
+      detail: { method },
+    });
+  }
+  return { mfaRequired: false, token, user, tenantId };
+}
+
+export async function signIn(deps: Deps, email: string, password: string): Promise<PasswordSignIn> {
   const rows = await deps.db.query<Row>(`SELECT * FROM users WHERE email = $1`, [email.trim().toLowerCase()]);
   const user = rows[0];
   if (!user) throw new HttpError(401, "unauthorized", "Email or password is wrong");
@@ -149,13 +191,7 @@ export async function signIn(deps: Deps, email: string, password: string): Promi
   if (!user.password_hash || !verifyPassword(password, String(user.password_hash))) {
     throw new HttpError(401, "unauthorized", "Email or password is wrong");
   }
-  const memberships = await membershipsOf(deps, String(user.id));
-  const tenantId = memberships[0]?.tenantId ?? null;
-  const token = await createSession(deps, { userId: String(user.id), tenantId, kind: "member" });
-  if (tenantId) {
-    await recordActivity(deps, { tenantId, actorUserId: String(user.id), actorEmail: String(user.email), kind: "sign-in", detail: {} });
-  }
-  return { token, user, tenantId };
+  return finishSignIn(deps, user, "password");
 }
 
 export async function startMagicLink(deps: Deps, email: string): Promise<{ sent: true; devToken?: string }> {
@@ -173,7 +209,7 @@ export async function startMagicLink(deps: Deps, email: string): Promise<{ sent:
   return deps.config.exposeMagicLink && users[0] ? { sent: true, devToken: token } : { sent: true };
 }
 
-export async function consumeMagicLink(deps: Deps, token: string): Promise<{ token: string; user: Row; tenantId: string | null }> {
+export async function consumeMagicLink(deps: Deps, token: string): Promise<PasswordSignIn> {
   const rows = await deps.db.query<Row>(`SELECT * FROM magic_links WHERE token_hash = $1`, [sha256(token)]);
   const link = rows[0];
   if (!link || new Date(String(link.expires_at)).getTime() <= deps.now().getTime()) throw new HttpError(401, "unauthorized", "This link is not valid");
@@ -181,10 +217,7 @@ export async function consumeMagicLink(deps: Deps, token: string): Promise<{ tok
   const users = await deps.db.query<Row>(`SELECT * FROM users WHERE email = $1`, [String(link.email)]);
   if (!users[0]) throw new HttpError(401, "unauthorized", "This link is not valid");
   accountCanUsePassword(users[0]);
-  const memberships = await membershipsOf(deps, String(users[0].id));
-  const tenantId = memberships[0]?.tenantId ?? null;
-  const session = await createSession(deps, { userId: String(users[0].id), tenantId, kind: "member" });
-  return { token: session, user: users[0], tenantId };
+  return finishSignIn(deps, users[0], "magic");
 }
 
 export async function signOut(deps: Deps, token: string | null): Promise<void> {

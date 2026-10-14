@@ -52,6 +52,7 @@ import {
   updateProfile,
 } from "./services/account.js";
 import { createTeamUser, deleteTeamUser, disableTeamUser, issueApiKey, listAudit, listTeamUsers, readRetention, updateRetention } from "./services/admin.js";
+import { beginMfaEnrollment, confirmMfaEnrollment, verifyMfaChallenge } from "./services/mfa.js";
 import { listFileVersions, openFileVersion, restoreFileVersion } from "./services/versions.js";
 import { createGrant, listGrants, openPortal, portalActivity, portalHome, revokeGrant } from "./services/sharing.js";
 import { catalog, createTicket, publicMetadata, publishFile, readTicket, reportAbuse, streamTicket, unpublish, updateTransferSettings } from "./services/transfer.js";
@@ -242,6 +243,7 @@ export function createApp(deps: Deps) {
   app.post("/sessions", async (c) => {
     const body = await readBody(c);
     const result = await signIn(deps, String(body.email ?? ""), String(body.password ?? ""));
+    if (result.mfaRequired) return c.json({ mfaRequired: true, challenge: result.challenge });
     setCookie(c, SESSION, result.token, cookieOptions(60 * 60 * 24 * 30));
     return c.json(await getMe(deps, result.user, result.tenantId));
   });
@@ -254,6 +256,14 @@ export function createApp(deps: Deps) {
   app.post("/sessions/magic/consume", async (c) => {
     const body = await readBody(c);
     const result = await consumeMagicLink(deps, String(body.token ?? ""));
+    if (result.mfaRequired) return c.json({ mfaRequired: true, challenge: result.challenge });
+    setCookie(c, SESSION, result.token, cookieOptions(60 * 60 * 24 * 30));
+    return c.json(await getMe(deps, result.user, result.tenantId));
+  });
+
+  app.post("/sessions/mfa", async (c) => {
+    const body = await readBody(c);
+    const result = await verifyMfaChallenge(deps, String(body.challenge ?? ""), String(body.code ?? ""));
     setCookie(c, SESSION, result.token, cookieOptions(60 * 60 * 24 * 30));
     return c.json(await getMe(deps, result.user, result.tenantId));
   });
@@ -294,6 +304,18 @@ export function createApp(deps: Deps) {
   app.get("/me", async (c) => {
     const { user, session } = await signedIn(c);
     return c.json(await getMe(deps, user, session.active_tenant_id ? String(session.active_tenant_id) : null));
+  });
+
+  app.post("/me/mfa/enroll", async (c) => {
+    const { user } = await signedIn(c);
+    return c.json(await beginMfaEnrollment(deps, user));
+  });
+
+  app.post("/me/mfa/confirm", async (c) => {
+    const { user, session } = await signedIn(c);
+    const body = await readBody(c);
+    const tenantId = session.active_tenant_id ? String(session.active_tenant_id) : null;
+    return c.json(await confirmMfaEnrollment(deps, user, tenantId, String(body.code ?? "")));
   });
 
   app.patch("/me", async (c) => {

@@ -239,7 +239,7 @@ export interface Membership {
 }
 
 export interface Me {
-  user: { id: string; email: string; name: string; transferPlan: TransferPlan };
+  user: { id: string; email: string; name: string; transferPlan: TransferPlan; mfaEnabled: boolean };
   memberships: Membership[];
   activeTenant: { id: string; slug: string; name: string; role: MemberRole } | null;
   preferences: Preferences;

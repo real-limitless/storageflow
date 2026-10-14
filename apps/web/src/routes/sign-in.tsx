@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { Me } from "@storageflow/domain";
 import { TeamOnboarding } from "@/components/team-onboarding";
 import { api } from "@/lib/api";
+import { MfaChallenge } from "@/components/mfa";
 import { Button, Card, Input, Label } from "@/components/ui";
 
 export function SignInPage() {
@@ -14,6 +15,7 @@ export function SignInPage() {
   const [name, setName] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [challenge, setChallenge] = useState<string | null>(null);
 
   async function enter(me: Me) {
     if (me.activeTenant == null) {
@@ -36,18 +38,52 @@ export function SignInPage() {
       if (mode === "magic") {
         const result = await api<{ sent: boolean; devToken?: string }>("/sessions/magic", { method: "POST", body: JSON.stringify({ email }) });
         if (result.devToken) {
-          const me = await api<Me>("/sessions/magic/consume", { method: "POST", body: JSON.stringify({ token: result.devToken }) });
-          await enter(me);
+          const consumed = await api<Me & { mfaRequired?: boolean; challenge?: string }>("/sessions/magic/consume", {
+            method: "POST",
+            body: JSON.stringify({ token: result.devToken }),
+          });
+          if (consumed.mfaRequired && consumed.challenge) {
+            setChallenge(consumed.challenge);
+            return;
+          }
+          await enter(consumed);
           return;
         }
         setMessage("If that email can sign in, a link is on its way.");
         return;
       }
-      const me = await api<Me>("/sessions", { method: "POST", body: JSON.stringify({ email, password }) });
-      await enter(me);
+      const signedIn = await api<Me & { mfaRequired?: boolean; challenge?: string }>("/sessions", {
+        method: "POST",
+        body: JSON.stringify({ email, password }),
+      });
+      if (signedIn.mfaRequired && signedIn.challenge) {
+        setChallenge(signedIn.challenge);
+        return;
+      }
+      await enter(signedIn);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Sign in failed");
     }
+  }
+
+  if (challenge) {
+    return (
+      <main className="grid min-h-full place-items-center bg-[var(--page)] p-6">
+        <Card className="w-full max-w-sm space-y-4 border-[var(--line)] p-8 shadow-sm">
+          <div className="flex items-center gap-2">
+            <span className="grid h-8 w-8 place-items-center rounded-lg bg-primary text-xs font-semibold text-white">SF</span>
+            <h1 className="text-lg font-semibold">StorageFlow</h1>
+          </div>
+          <MfaChallenge
+            challenge={challenge}
+            onSuccess={(me) => {
+              setChallenge(null);
+              void enter(me);
+            }}
+          />
+        </Card>
+      </main>
+    );
   }
 
   if (needsTeam) return <TeamOnboarding onCreated={() => void navigate({ to: "/app" })} />;

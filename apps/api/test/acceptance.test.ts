@@ -6,10 +6,12 @@ import { buildTree } from "@storageflow/domain";
 import { createApp } from "../src/app.js";
 import { createResolver } from "../src/adapters.js";
 import type { AppConfig } from "../src/config.js";
+import { decryptString } from "../src/crypto.js";
 import { openDatabase } from "../src/db.js";
 import { JobQueue } from "../src/jobs.js";
 import { migrate } from "../src/migrate.js";
 import type { Deps } from "../src/services/access.js";
+import { totpAt, totpCode } from "../src/totp.js";
 
 const key = Buffer.from("ab".repeat(32), "hex");
 
@@ -425,11 +427,13 @@ test("migration 002 upgrades a database that already has 001", async () => {
   await db.query("SELECT storage_key, version FROM file_versions");
   await db.query("SELECT action FROM audit_log");
   await db.query("SELECT key_hash, scopes FROM api_keys");
+  const mfa = await db.query<{ mfa_enabled: boolean }>("SELECT mfa_enabled FROM users WHERE id = $1", [userId]);
+  assert.equal(mfa[0]?.mfa_enabled, false);
   const applied = await db.query<{ id: string }>("SELECT id FROM schema_migrations ORDER BY id");
-  assert.deepEqual(applied.map((row) => row.id), ["001", "002"]);
+  assert.deepEqual(applied.map((row) => row.id), ["001", "002", "003"]);
   await migrate(db);
   const again = await db.query<{ id: string }>("SELECT id FROM schema_migrations ORDER BY id");
-  assert.deepEqual(again.map((row) => row.id), ["001", "002"]);
+  assert.deepEqual(again.map((row) => row.id), ["001", "002", "003"]);
   await db.close();
 });
 
@@ -661,5 +665,168 @@ test("sign-up plus create-tenant yields an owner membership", async () => {
     tenant.json.activeTenant.id,
   ]);
   assert.equal(rows[0]?.role, "owner");
+  await db.close();
+});
+
+test("totp matches the RFC 6238 SHA1 vector", () => {
+  assert.equal(totpAt("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", Math.floor(59 / 30)), "287082");
+  assert.equal(totpAt("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", Math.floor(1111111109 / 30)), "081804");
+});
+
+test("migration 003 adds MFA columns when 002 is already applied", async () => {
+  const db = await openDatabase("pglite:");
+  const legacy = fs.readFileSync(new URL("../src/migrations/001.sql", import.meta.url), "utf8");
+  const upgrade = fs.readFileSync(new URL("../src/migrations/002.sql", import.meta.url), "utf8");
+  await db.exec(legacy);
+  await db.exec(upgrade);
+  await db.exec("CREATE TABLE schema_migrations (id text PRIMARY KEY, applied_at timestamptz NOT NULL)");
+  await db.query("INSERT INTO schema_migrations (id, applied_at) VALUES ('001', CURRENT_TIMESTAMP), ('002', CURRENT_TIMESTAMP)");
+  const userId = crypto.randomUUID();
+  await db.query(`INSERT INTO users (id, email, name, transfer_plan, kind, created_at) VALUES ($1,$2,$3,'free','user',$4)`, [
+    userId,
+    "kept@acme.test",
+    "Kept",
+    "2026-10-13T12:00:00.000Z",
+  ]);
+  await migrate(db);
+  const user = await db.query<{ mfa_enabled: boolean; totp_cipher: string | null }>("SELECT mfa_enabled, totp_cipher FROM users WHERE id = $1", [userId]);
+  assert.equal(user[0]?.mfa_enabled, false);
+  assert.equal(user[0]?.totp_cipher, null);
+  await db.query("SELECT code_cipher, used_at FROM mfa_recovery_codes");
+  await db.query("SELECT token_hash, expires_at FROM mfa_challenges");
+  const applied = await db.query<{ id: string }>("SELECT id FROM schema_migrations ORDER BY id");
+  assert.deepEqual(applied.map((row) => row.id), ["001", "002", "003"]);
+  await migrate(db);
+  const again = await db.query<{ id: string }>("SELECT id FROM schema_migrations ORDER BY id");
+  assert.deepEqual(again.map((row) => row.id), ["001", "002", "003"]);
+  await db.close();
+});
+
+test("mfa enroll, rejected code, recovery code, and audit", async () => {
+  const db = await openDatabase("pglite:");
+  await migrate(db);
+  const now = new Date("2026-10-14T15:00:00Z");
+  const deps: Deps = {
+    db,
+    adapters: createResolver("memory"),
+    config: config(),
+    jobs: new JobQueue(),
+    now: () => now,
+  };
+  const app = createApp(deps);
+  const jar = new Jar();
+
+  function outsideWindow(totpSecret: string): string {
+    const counter = Math.floor(now.getTime() / 1000 / 30);
+    const blocked = new Set([-1, 0, 1].map((delta) => totpAt(totpSecret, counter + delta)));
+    for (let value = 0; value < 1_000_000; value += 1) {
+      const candidate = String(value).padStart(6, "0");
+      if (!blocked.has(candidate)) return candidate;
+    }
+    throw new Error("no rejected code");
+  }
+
+  async function call(method: string, path: string, options?: { json?: unknown; jar?: Jar }) {
+    const used = options?.jar ?? jar;
+    const headers = new Headers();
+    const cookie = used.header();
+    if (cookie) headers.set("cookie", cookie);
+    if (options?.json !== undefined) headers.set("content-type", "application/json");
+    const response = await app.request(path, {
+      method,
+      headers,
+      body: options?.json !== undefined ? JSON.stringify(options.json) : undefined,
+    });
+    used.absorb(response);
+    return bodyOf(response);
+  }
+
+  const created = await call("POST", "/users", { json: { email: "ada@acme.test", name: "Ada", password: "correct-horse" } });
+  assert.equal(created.status, 201, JSON.stringify(created.json));
+  assert.equal(created.json.user.mfaEnabled, false);
+  const tenant = await call("POST", "/tenants", { json: { name: "Acme", slug: "acme" } });
+  assert.equal(tenant.status, 201, JSON.stringify(tenant.json));
+
+  const enrolled = await call("POST", "/me/mfa/enroll", { json: {} });
+  assert.equal(enrolled.status, 200, JSON.stringify(enrolled.json));
+  const secret = String(enrolled.json.secret);
+  const recoveryCodes = enrolled.json.recoveryCodes as string[];
+  assert.equal(recoveryCodes.length, 8);
+  assert.match(String(enrolled.json.otpauth), /^otpauth:\/\/totp\//);
+  const stored = await db.query<{ totp_pending_cipher: string; mfa_enabled: boolean }>(
+    "SELECT totp_pending_cipher, mfa_enabled FROM users WHERE email = $1",
+    ["ada@acme.test"],
+  );
+  assert.equal(stored[0]?.mfa_enabled, false);
+  assert.match(String(stored[0]?.totp_pending_cipher), /^v1:/);
+  assert.equal(decryptString(key, String(stored[0]?.totp_pending_cipher)), secret);
+  const ciphers = await db.query<{ code_cipher: string }>("SELECT code_cipher FROM mfa_recovery_codes");
+  assert.equal(ciphers.length, 8);
+  const decrypted = ciphers.map((row) => decryptString(key, row.code_cipher));
+  assert.equal(decrypted.includes(recoveryCodes[0].replace("-", "")), true);
+  assert.equal(ciphers.some((row) => row.code_cipher.includes(recoveryCodes[0])), false);
+
+  const wrong = outsideWindow(secret);
+  const rejected = await call("POST", "/me/mfa/confirm", { json: { code: wrong } });
+  assert.equal(rejected.status, 401, JSON.stringify(rejected.json));
+  const stillOff = await call("GET", "/me");
+  assert.equal(stillOff.json.user.mfaEnabled, false);
+
+  const confirmed = await call("POST", "/me/mfa/confirm", { json: { code: totpCode(secret, now) } });
+  assert.equal(confirmed.status, 200, JSON.stringify(confirmed.json));
+  assert.equal(confirmed.json.enabled, true);
+  const on = await call("GET", "/me");
+  assert.equal(on.json.user.mfaEnabled, true);
+  const active = await db.query<{ totp_cipher: string; totp_pending_cipher: string | null }>(
+    "SELECT totp_cipher, totp_pending_cipher FROM users WHERE email = $1",
+    ["ada@acme.test"],
+  );
+  assert.match(String(active[0]?.totp_cipher), /^v1:/);
+  assert.equal(active[0]?.totp_pending_cipher, null);
+
+  await call("DELETE", "/sessions/current");
+  jar.drop("sf_session");
+  const challenged = await call("POST", "/sessions", { json: { email: "ada@acme.test", password: "correct-horse" } });
+  assert.equal(challenged.status, 200, JSON.stringify(challenged.json));
+  assert.equal(challenged.json.mfaRequired, true);
+  assert.equal(typeof challenged.json.challenge, "string");
+  const blocked = await call("GET", "/me");
+  assert.equal(blocked.status, 401, JSON.stringify(blocked.json));
+
+  const badChallenge = await call("POST", "/sessions/mfa", { json: { challenge: challenged.json.challenge, code: wrong } });
+  assert.equal(badChallenge.status, 401, JSON.stringify(badChallenge.json));
+  const stillBlocked = await call("GET", "/me");
+  assert.equal(stillBlocked.status, 401, JSON.stringify(stillBlocked.json));
+
+  const recovered = await call("POST", "/sessions/mfa", { json: { challenge: challenged.json.challenge, code: recoveryCodes[0] } });
+  assert.equal(recovered.status, 200, JSON.stringify(recovered.json));
+  assert.equal(recovered.json.user.email, "ada@acme.test");
+  const home = await call("GET", "/me");
+  assert.equal(home.status, 200, JSON.stringify(home.json));
+
+  const reuseJar = new Jar();
+  const again = await call("POST", "/sessions", { json: { email: "ada@acme.test", password: "correct-horse" }, jar: reuseJar });
+  const reused = await call("POST", "/sessions/mfa", {
+    json: { challenge: again.json.challenge, code: recoveryCodes[0] },
+    jar: reuseJar,
+  });
+  assert.equal(reused.status, 401, JSON.stringify(reused.json));
+
+  const audit = await call("GET", "/audit");
+  assert.equal(audit.status, 200, JSON.stringify(audit.json));
+  const actions = audit.json.map((row: { action: string }) => row.action);
+  assert.equal(actions.includes("mfa.enroll"), true);
+  assert.equal(actions.includes("mfa.reject"), true);
+  assert.equal(actions.includes("mfa.recovery"), true);
+  assert.equal(actions.includes("sign-in"), true);
+  const member = await call("POST", "/admin/users", {
+    json: { email: "bob@acme.test", name: "Bob", password: "correct-horse", kind: "user" },
+  });
+  const memberJar = new Jar();
+  await call("POST", "/sessions", { json: { email: "bob@acme.test", password: "correct-horse" }, jar: memberJar });
+  const memberAudit = await call("GET", "/audit", { jar: memberJar });
+  assert.equal(memberAudit.status, 403, JSON.stringify(memberAudit.json));
+  assert.equal(member.json.role, "member");
+
   await db.close();
 });
