@@ -271,13 +271,43 @@ button, input, textarea { font: inherit; }
   opacity: 0.38;
 }
 
+.ribbon-search-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.35rem 0.5rem 0.5rem;
+}
+
 .ribbon-search {
   display: flex;
-  width: min(36rem, 100%);
+  width: 100%;
   flex-wrap: nowrap;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.35rem;
+  overflow-x: auto;
+}
+
+.search-mode {
+  display: inline-flex;
+  flex: 0 0 auto;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: white;
+}
+
+.search-mode button {
+  height: 1.75rem;
+  padding: 0 0.7rem;
+  border-radius: 8px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.search-mode button[aria-pressed="true"] {
+  background: #eef4ff;
+  color: #1d4ed8;
+  font-weight: 600;
 }
 
 .ribbon-search input {
@@ -306,6 +336,82 @@ button, input, textarea { font: inherit; }
 
 .ribbon-hit:hover {
   background: #f8fafc;
+}
+
+.meaning-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  max-height: 14rem;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 0.7rem 0.8rem;
+}
+
+.meaning-strip[data-semantic-state="denied"] {
+  background: #fff6f6;
+}
+
+.meaning-note {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.875rem;
+}
+
+.meaning-strip[data-semantic-state="denied"] .meaning-note {
+  color: #b42318;
+}
+
+.meaning-answer {
+  margin: 0;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid #d9e2f2;
+  border-left: 3px solid #1d4ed8;
+  border-radius: 10px;
+  background: white;
+}
+
+.meaning-answer p {
+  margin: 0.35rem 0 0;
+  color: var(--ink);
+}
+
+.meaning-hits {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meaning-hits li {
+  display: grid;
+  grid-template-columns: minmax(8rem, 1fr) auto auto;
+  gap: 0.35rem 0.75rem;
+  align-items: baseline;
+  padding: 0.45rem 0.6rem;
+  border-radius: 8px;
+  background: white;
+}
+
+.meaning-hits button {
+  color: #1d4ed8;
+  font-weight: 600;
+  text-align: left;
+}
+
+.meaning-hits span {
+  color: var(--ink-soft);
+  font-size: 0.8125rem;
+}
+
+.meaning-hits p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--ink);
 }
 
 .path-bar {

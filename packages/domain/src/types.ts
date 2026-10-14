@@ -256,6 +256,13 @@ export interface SearchHit {
   drawerName: string;
   projectId: string;
   parentId: string | null;
+  snippet?: string;
+  score?: number;
+}
+
+export interface RagAnswer {
+  answer: string;
+  hits: SearchHit[];
 }
 
 export interface PortalRoot {

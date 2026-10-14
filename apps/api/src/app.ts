@@ -54,6 +54,7 @@ import {
 import { createTeamUser, deleteTeamUser, disableTeamUser, issueApiKey, listAudit, listTeamUsers, readRetention, updateRetention } from "./services/admin.js";
 import { beginMfaEnrollment, confirmMfaEnrollment, verifyMfaChallenge } from "./services/mfa.js";
 import { listFileVersions, openFileVersion, restoreFileVersion } from "./services/versions.js";
+import { answerQuestion, semanticSearch } from "./services/semantic.js";
 import { createGrant, listGrants, openPortal, portalActivity, portalHome, revokeGrant } from "./services/sharing.js";
 import { catalog, createTicket, publicMetadata, publishFile, readTicket, reportAbuse, streamTicket, unpublish, updateTransferSettings } from "./services/transfer.js";
 
@@ -391,6 +392,10 @@ export function createApp(deps: Deps) {
   app.post("/projects/:id/drawers", async (c) => c.json(await createDrawer(deps, await member(c), c.req.param("id"), await readBody(c)), 201));
 
   app.get("/projects/:id/search", async (c) => c.json(await searchProject(deps, await member(c), c.req.param("id"), c.req.query("q") ?? "")));
+  app.get("/projects/:id/search/semantic", async (c) =>
+    c.json(await semanticSearch(deps, await member(c), c.req.param("id"), c.req.query("q") ?? "")),
+  );
+  app.post("/projects/:id/ask", async (c) => c.json(await answerQuestion(deps, await member(c), c.req.param("id"), await readBody(c))));
 
   app.post("/drawers/:id/test", async (c) => c.json(await testDrawer(deps, await member(c), c.req.param("id"))));
 

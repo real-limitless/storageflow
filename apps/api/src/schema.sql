@@ -304,7 +304,24 @@ CREATE TABLE mfa_challenges (
   created_at timestamptz NOT NULL
 );
 
+-- Stored width matches EMBEDDING_DIMENSIONS in embed.ts.
+CREATE EXTENSION IF NOT EXISTS vector;
+
+CREATE TABLE embeddings (
+  id uuid PRIMARY KEY,
+  tenant_id uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  project_id uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  node_id uuid NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+  chunk_index integer NOT NULL,
+  content text NOT NULL,
+  embedding vector(64) NOT NULL,
+  created_at timestamptz NOT NULL,
+  UNIQUE (node_id, chunk_index)
+);
+
 CREATE INDEX nodes_parent_idx ON nodes (drawer_id, parent_id);
+CREATE INDEX embeddings_project_idx ON embeddings (project_id, tenant_id);
+CREATE INDEX embeddings_cosine_idx ON embeddings USING hnsw (embedding vector_cosine_ops);
 CREATE INDEX nodes_sort_idx ON nodes (drawer_id, parent_id, sort_order);
 CREATE INDEX file_versions_node_idx ON file_versions (node_id, version);
 CREATE INDEX api_keys_tenant_idx ON api_keys (tenant_id, user_id);

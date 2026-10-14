@@ -3,9 +3,11 @@ import { createResolver } from "./adapters.js";
 import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { openDatabase } from "./db.js";
+import { createExtractiveAnswerer, createHashEmbedder, createHttpAnswerer, createHttpEmbedder } from "./embed.js";
 import { JobQueue } from "./jobs.js";
 import { migrate } from "./migrate.js";
 import { seedOwner } from "./services/account.js";
+import { watchUnindexedEmbeddings } from "./services/semantic.js";
 
 const config = loadConfig();
 if (!config.databaseUrl) {
@@ -20,9 +22,16 @@ const deps = {
   adapters: createResolver(config.adapterMode),
   config,
   jobs: new JobQueue(),
+  embedder: config.embeddingUrl
+    ? createHttpEmbedder({ url: config.embeddingUrl, apiKey: config.embeddingApiKey, model: config.embeddingModel })
+    : createHashEmbedder(),
+  answerer: config.answerUrl
+    ? createHttpAnswerer({ url: config.answerUrl, apiKey: config.answerApiKey, model: config.answerModel })
+    : createExtractiveAnswerer(),
   now: () => new Date(),
 };
 await seedOwner(deps);
+watchUnindexedEmbeddings(deps);
 const app = createApp(deps);
 const port = Number(process.env.PORT ?? 8787);
 serve({ fetch: app.fetch, port }, () => {

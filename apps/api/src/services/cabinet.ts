@@ -39,6 +39,7 @@ import {
   type Deps,
   type MemberActor,
 } from "./access.js";
+import { indexUploadedFile } from "./semantic.js";
 import { isVersionListingName, snapshotFileVersion } from "./versions.js";
 
 const PART_SIZE = 8 * 1024 * 1024;
@@ -1140,6 +1141,14 @@ export async function completeUpload(deps: Deps, actor: Actor, uploadId: string,
     kind: "upload",
     detail: { name: node.name, size: node.size },
   });
+  const indexed = {
+    tenantId: actor.tenantId,
+    projectId: String(drawer.project_id),
+    drawerId: String(session.drawer_id),
+    nodeId: node.id,
+  };
+  deps.jobs.enqueue(() => indexUploadedFile(deps, indexed));
+  await deps.jobs.whenIdle();
   return node;
 }
 

@@ -1,4 +1,5 @@
 import type { PathSegment, SearchHit } from "@storageflow/domain";
+import type { CabinetSearchMode } from "@/lib/search";
 import {
   BookOpen,
   CircleHelp,
@@ -97,6 +98,11 @@ export function FileCenterRibbon({
   searching,
   onOpenHit,
   rowWidth,
+  searchMode = "name",
+  onSearchMode,
+  onAsk,
+  semanticState = "idle",
+  ragAnswer = "",
 }: {
   tab: RibbonTab;
   onTabChange: (tab: RibbonTab) => void;
@@ -110,6 +116,11 @@ export function FileCenterRibbon({
   hits: SearchHit[] | null;
   searching: boolean;
   onOpenHit: (hit: SearchHit) => void;
+  searchMode?: CabinetSearchMode;
+  onSearchMode?: (mode: CabinetSearchMode) => void;
+  onAsk?: () => void;
+  semanticState?: "idle" | "hits" | "empty" | "denied";
+  ragAnswer?: string;
 }) {
   const [soon, setSoon] = useState<RibbonAction | null>(null);
 
@@ -151,6 +162,11 @@ export function FileCenterRibbon({
             hits={hits}
             searching={searching}
             onOpenHit={onOpenHit}
+            mode={searchMode}
+            onMode={onSearchMode}
+            onAsk={onAsk}
+            semanticState={semanticState}
+            ragAnswer={ragAnswer}
           />
         ) : (
           <RibbonActionRow
@@ -287,6 +303,11 @@ function SearchPanel({
   hits,
   searching,
   onOpenHit,
+  mode,
+  onMode,
+  onAsk,
+  semanticState,
+  ragAnswer,
 }: {
   value: string;
   onValue: (value: string) => void;
@@ -294,25 +315,45 @@ function SearchPanel({
   hits: SearchHit[] | null;
   searching: boolean;
   onOpenHit: (hit: SearchHit) => void;
+  mode: CabinetSearchMode;
+  onMode?: (mode: CabinetSearchMode) => void;
+  onAsk?: () => void;
+  semanticState: "idle" | "hits" | "empty" | "denied";
+  ragAnswer: string;
 }) {
+  const semantic = mode === "semantic";
   return (
-    <form
-      className="ribbon-search"
-      onSubmit={(event) => {
-        event.preventDefault();
-        onSearch();
-      }}
-    >
-      <Input
-        aria-label="Search names"
-        placeholder="Search file and folder names"
-        value={value}
-        onChange={(event) => onValue(event.target.value)}
-      />
-      <Button type="submit" size="sm" disabled={searching}>
-        Search
-      </Button>
-      {hits && (
+    <div className="ribbon-search-panel">
+      <form
+        className="ribbon-search"
+        data-testid="ribbon-search-row"
+        data-ribbon-rows="1"
+        style={{ flexWrap: "nowrap" }}
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSearch();
+        }}
+      >
+        <div className="search-mode" role="group" aria-label="Search mode" data-search-mode={mode}>
+          <button type="button" aria-pressed={mode === "name"} onClick={() => onMode?.("name")}>Name</button>
+          <button type="button" aria-pressed={mode === "semantic"} onClick={() => onMode?.("semantic")}>Semantic</button>
+        </div>
+        <Input
+          aria-label={semantic ? "Search by meaning" : "Search names"}
+          placeholder={semantic ? "Search by meaning" : "Search file and folder names"}
+          value={value}
+          onChange={(event) => onValue(event.target.value)}
+        />
+        <Button type="submit" size="sm" disabled={searching}>
+          Search
+        </Button>
+        {semantic && (
+          <Button type="button" size="sm" disabled={searching} onClick={() => onAsk?.()}>
+            Ask
+          </Button>
+        )}
+      </form>
+      {!semantic && hits && (
         <ul className="ribbon-hits" aria-label="Name search results">
           {hits.length === 0 && <li className="px-2 py-2 text-sm text-[var(--ink-soft)]">No names match</li>}
           {hits.map((hit) => (
@@ -325,7 +366,32 @@ function SearchPanel({
           ))}
         </ul>
       )}
-    </form>
+      {semantic && (
+        <div className="meaning-strip" data-semantic-state={semanticState}>
+          {semanticState === "idle" && !ragAnswer && <p className="meaning-note">Search by meaning, or ask a question about files you can open.</p>}
+          {semanticState === "empty" && <p className="meaning-note" data-semantic-empty>No files match that meaning.</p>}
+          {semanticState === "denied" && <p className="meaning-note" data-semantic-denied>You do not have access to search this cabinet.</p>}
+          {ragAnswer && (
+            <blockquote className="meaning-answer" data-rag-answer>
+              <span className="pane-label">Answer</span>
+              <p>{ragAnswer}</p>
+            </blockquote>
+          )}
+          {semanticState === "hits" && hits && hits.length > 0 && (
+            <ul className="meaning-hits" aria-label="Semantic search results">
+              {hits.map((hit) => (
+                <li key={hit.node.id} data-semantic-hit>
+                  <button type="button" onClick={() => onOpenHit(hit)}>{hit.node.name}</button>
+                  <span>{hit.drawerName}</span>
+                  <span>{Math.round((hit.score ?? 0) * 100)}%</span>
+                  {hit.snippet && <p>{hit.snippet}</p>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
