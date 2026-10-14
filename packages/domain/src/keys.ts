@@ -1,5 +1,14 @@
 const INVALID_NAME = /[\\/\0]/;
 
+export function objectNameError(name: string): string | null {
+  const trimmed = name.trim();
+  if (!trimmed) return "Name is required";
+  if (trimmed === "." || trimmed === "..") return "Name cannot be . or ..";
+  if (INVALID_NAME.test(trimmed)) return "Name cannot contain / or \\";
+  if (trimmed.length > 200) return "Name is too long";
+  return null;
+}
+
 export function normalizePrefix(prefix: string): string {
   let value = prefix.trim().replace(/^\/+/, "").replace(/\/{2,}/g, "/");
   if (value === "" || value === "/") return "";

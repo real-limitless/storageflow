@@ -1,7 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { GRANT_VERBS, PROJECT_KINDS, type Drawer, type GrantView, type GrantVerb, type Project, type TestResult } from "@storageflow/domain";
-import { useEffect, useState } from "react";
+import { GRANT_VERBS, objectNameError, PROJECT_KINDS, type Drawer, type GrantView, type GrantVerb, type Project, type TestResult } from "@storageflow/domain";
+import { useEffect, useState, type FormEvent } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { api, ApiError } from "@/lib/api";
@@ -176,32 +176,152 @@ export function DrawerWizard({
   );
 }
 
-const folderSchema = z.object({ name: z.string().min(1).max(200) });
-
-export function FolderDialog({ open, onOpenChange, drawerId, parentId }: { open: boolean; onOpenChange: (open: boolean) => void; drawerId: string; parentId: string }) {
+export function FolderDialog({
+  open,
+  onOpenChange,
+  drawerId,
+  parentId,
+  scopeLabel,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  drawerId: string;
+  parentId: string;
+  scopeLabel?: string;
+}) {
   const queryClient = useQueryClient();
-  const form = useForm<{ name: string }>({ resolver: zodResolver(folderSchema), defaultValues: { name: "" } });
-  const create = useMutation({
-    mutationFn: (values: { name: string }) => api(`/drawers/${drawerId}/folders`, { method: "POST", body: JSON.stringify({ parentId, name: values.name }) }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["tree", drawerId] });
-      await queryClient.invalidateQueries({ queryKey: ["listing", drawerId] });
+  return (
+    <NameCreateDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="New folder"
+      description={`Creates a folder inside ${scopeLabel || "the selected folder"}.`}
+      submitLabel="Create folder"
+      fieldId="folder-name"
+      onCreate={async (name) => {
+        await api(`/drawers/${drawerId}/folders`, { method: "POST", body: JSON.stringify({ parentId, name }) });
+        await queryClient.invalidateQueries({ queryKey: ["tree", drawerId] });
+        await queryClient.invalidateQueries({ queryKey: ["listing", drawerId] });
+      }}
+    />
+  );
+}
+
+export function FileDialog({
+  open,
+  onOpenChange,
+  drawerId,
+  folderId,
+  scopeLabel,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  drawerId: string;
+  folderId: string;
+  scopeLabel?: string;
+}) {
+  const queryClient = useQueryClient();
+  return (
+    <NameCreateDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="New file"
+      description={`Creates a file inside ${scopeLabel || "the selected folder"}.`}
+      submitLabel="Create file"
+      fieldId="file-name"
+      onCreate={async (name) => {
+        const ticket = await api<{ uploadId: string; transport: "presigned" | "proxy"; url?: string }>(`/drawers/${drawerId}/uploads`, {
+          method: "POST",
+          body: JSON.stringify({ folderId, name, size: 1, contentType: "text/plain" }),
+        });
+        const target = ticket.transport === "presigned" && ticket.url ? ticket.url : `/api/uploads/${ticket.uploadId}/body`;
+        const response = await fetch(target, {
+          method: "PUT",
+          body: new Blob(["\n"], { type: "text/plain" }),
+          credentials: ticket.transport === "presigned" ? "omit" : "include",
+          headers: { "content-type": "text/plain" },
+        });
+        if (!response.ok) throw new Error("Upload failed");
+        await api(`/uploads/${ticket.uploadId}/complete`, { method: "POST", body: "{}" });
+        await queryClient.invalidateQueries({ queryKey: ["listing", drawerId] });
+        await queryClient.invalidateQueries({ queryKey: ["tree", drawerId] });
+      }}
+    />
+  );
+}
+
+function NameCreateDialog({
+  open,
+  onOpenChange,
+  title,
+  description,
+  submitLabel,
+  fieldId,
+  onCreate,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  description: string;
+  submitLabel: string;
+  fieldId: string;
+  onCreate: (name: string) => Promise<void>;
+}) {
+  const [name, setName] = useState("");
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    setName("");
+    setError("");
+    setPending(false);
+  }, [open]);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const message = objectNameError(name);
+    if (message) {
+      setError(message);
+      return;
+    }
+    setError("");
+    setPending(true);
+    try {
+      await onCreate(name.trim());
       onOpenChange(false);
-      form.reset();
-    },
-  });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not create that item");
+    } finally {
+      setPending(false);
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>New folder</DialogTitle>
-          <DialogDescription>The folder is created on the drawer’s backend, under the current selection.</DialogDescription>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        <form className="space-y-3" onSubmit={form.handleSubmit((values) => create.mutate(values))}>
-          <Label htmlFor="folder-name">Name</Label>
-          <Input id="folder-name" {...form.register("name")} />
-          {create.error && <p className="text-sm text-destructive">{create.error.message}</p>}
-          <Button type="submit">Create folder</Button>
+        <form className="space-y-3" onSubmit={(event) => void submit(event)}>
+          <Label htmlFor={fieldId}>Name</Label>
+          <Input
+            id={fieldId}
+            aria-label="Name"
+            value={name}
+            onChange={(event) => {
+              setName(event.target.value);
+              if (error) setError("");
+            }}
+          />
+          {error && (
+            <p className="text-sm text-destructive" role="alert" data-testid="name-error">
+              {error}
+            </p>
+          )}
+          <Button type="submit" disabled={pending}>
+            {submitLabel}
+          </Button>
         </form>
       </DialogContent>
     </Dialog>

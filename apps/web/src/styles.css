@@ -352,3 +352,21 @@ button, input, textarea { font: inherit; }
   color: var(--ink-soft);
   font-size: 0.875rem;
 }
+
+.properties-pane {
+  display: flex;
+  width: 20rem;
+  min-width: 18rem;
+  max-width: 40%;
+  flex-direction: column;
+  border-left: 1px solid var(--line);
+  background: #fbfcfd;
+}
+
+.properties-empty {
+  padding: 1.25rem 1rem;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  background: white;
+  text-align: center;
+}

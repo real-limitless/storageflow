@@ -5,11 +5,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createColumnHelper, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { useNavigate, useParams, useRouterState, useSearch } from "@tanstack/react-router";
 import {
+  backendDisplayPath,
   buildTree,
   flattenTree,
   LABEL_COLORS,
   extensionOf,
+  objectNameError,
   typeLabel,
+  type LabelColor,
   type Drawer,
   type FolderTree,
   type GrantView,
@@ -22,21 +25,17 @@ import {
   type SearchHit,
 } from "@storageflow/domain";
 import { ChevronRight, File, FileText, Folder, FolderOpen, Image as ImageIcon, LayoutGrid, List, Star, Table2, Upload } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { toast } from "sonner";
 import { CabinetTabs } from "@/components/cabinet-tabs";
-import { DrawerWizard, FolderDialog, PublishDialog, ShareDialog } from "@/components/dialogs";
+import { DrawerWizard, FileDialog, FolderDialog, PublishDialog, ShareDialog } from "@/components/dialogs";
+import { DeleteConfirm, ItemMenu, type ItemMenuProps } from "@/components/item-menu";
+import { PropertiesPane, type PropertiesTarget } from "@/components/properties-pane";
 import { AppShell } from "@/components/header";
 import { FileCenterRibbon, LocationBar, StatusCounts } from "@/components/ribbon";
 import { buildLocationUrl, cabinetTabs, closeCabinetTab, neighborAfterClose, openOrRestoreCabinet, parseLocationUrl, projectIdFromUrl, reorderCabinetTabs, upsertCabinetTab } from "@/lib/cabinets";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogTitle,
   Button,
   CommandDialog,
   CommandEmpty,
@@ -44,10 +43,6 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuTrigger,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -71,6 +66,23 @@ import { validateExplorerSearch, type ExplorerSearch } from "@/lib/search";
 import { uploads, useUploads } from "@/lib/uploads";
 
 type Pane = "drawers" | "folders" | "files";
+
+interface MenuActions {
+  writesEnabled: boolean;
+  openNewFolder: () => void;
+  openNewFile: () => void;
+  openUpload: () => void;
+  openProperties: () => void;
+  file: (node: Node, index: number, count: number) => Omit<ItemMenuProps, "children">;
+  folder: (node: Node, siblings: Node[]) => Omit<ItemMenuProps, "children">;
+  drawer: (drawer: Drawer, index: number, count: number) => Omit<ItemMenuProps, "children">;
+}
+
+const MenuContext = createContext<MenuActions | null>(null);
+
+function useMenus() {
+  return useContext(MenuContext);
+}
 
 function useNarrow() {
   const [narrow, setNarrow] = useState(false);
@@ -111,10 +123,16 @@ export function ExplorerPage() {
   const [nameHits, setNameHits] = useState<SearchHit[] | null>(null);
   const [nameSearching, setNameSearching] = useState(false);
   const [createProject, setCreateProject] = useState(false);
-  const [deleteIds, setDeleteIds] = useState<string[]>([]);
+  const [fileDialog, setFileDialog] = useState(false);
+  const [createParentId, setCreateParentId] = useState("");
+  const [propertiesOpen, setPropertiesOpen] = useState(false);
+  const [propertiesTarget, setPropertiesTarget] = useState<PropertiesTarget | null>(null);
+  const [deleteRequest, setDeleteRequest] = useState<{ kind: "nodes" | "drawer"; ids: string[]; label: string } | null>(null);
   const [renameId, setRenameId] = useState<string | null>(null);
+  const [renameDrawerId, setRenameDrawerId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
+  const uploadParent = useRef("");
   const paneTimer = useRef<number | undefined>(undefined);
   const tabsRef = useRef<LocationTab[]>([]);
   const closedTabs = useRef<Map<string, LocationTab>>(new Map());
@@ -343,14 +361,15 @@ export function ExplorerPage() {
   }
 
   async function uploadList(list: FileList | File[]) {
-    if (!drawerId || !folderId) return;
+    const targetFolder = uploadParent.current || folderId;
+    if (!drawerId || !targetFolder) return;
     for (const file of [...list]) {
       const id = crypto.randomUUID();
-      uploads.add({ id, name: file.name, folderId, progress: 0, status: "uploading", file });
+      uploads.add({ id, name: file.name, folderId: targetFolder, progress: 0, status: "uploading", file });
       try {
         const ticket = await api<{ uploadId: string; transport: "presigned" | "proxy"; url?: string }>(`/drawers/${drawerId}/uploads`, {
           method: "POST",
-          body: JSON.stringify({ folderId, name: file.name, size: file.size, contentType: file.type || "application/octet-stream" }),
+          body: JSON.stringify({ folderId: targetFolder, name: file.name, size: file.size, contentType: file.type || "application/octet-stream" }),
         });
         await sendFile(ticket, file, (progress) => uploads.update(id, { progress }));
         await api(`/uploads/${ticket.uploadId}/complete`, { method: "POST", body: "{}" });
@@ -362,12 +381,17 @@ export function ExplorerPage() {
         toast.error(message);
       }
     }
-    await queryClient.invalidateQueries({ queryKey: ["listing", drawerId, folderId] });
+    await queryClient.invalidateQueries({ queryKey: ["listing", drawerId] });
   }
 
   async function rename(node: Node) {
+    const message = objectNameError(renameValue);
+    if (message) {
+      toast.error(message);
+      return;
+    }
     try {
-      await api(`/nodes/${node.id}`, { method: "PATCH", body: JSON.stringify({ name: renameValue }) });
+      await api(`/nodes/${node.id}`, { method: "PATCH", body: JSON.stringify({ name: renameValue.trim() }) });
       setRenameId(null);
       await queryClient.invalidateQueries({ queryKey: ["listing"] });
       await queryClient.invalidateQueries({ queryKey: ["tree"] });
@@ -376,20 +400,22 @@ export function ExplorerPage() {
     }
   }
 
-  async function remove(ids: string[]) {
+  function remove(ids: string[]) {
     const nodes = [...(listing.data?.files ?? []), ...(listing.data?.folders ?? []), ...(tree.data?.folders ?? [])].filter((node) => ids.includes(node.id));
-    const needsConfirm = ids.length > 1 || nodes.some((node) => node.kind === "folder");
-    if (needsConfirm) {
-      setDeleteIds(ids);
-      return;
-    }
-    await confirmDelete(ids);
+    const label = ids.length === 1 ? nodes[0]?.name ?? "this item" : `${ids.length} items`;
+    if (ids.length === 0) return;
+    setDeleteRequest({ kind: "nodes", ids, label });
   }
 
-  async function confirmDelete(ids: string[]) {
+  async function confirmDelete() {
+    if (!deleteRequest) return;
     try {
-      await api("/nodes/delete", { method: "POST", body: JSON.stringify({ nodeIds: ids }) });
-      setDeleteIds([]);
+      if (deleteRequest.kind === "drawer") {
+        await api(`/drawers/${deleteRequest.ids[0]}`, { method: "DELETE" });
+      } else {
+        await api("/nodes/delete", { method: "POST", body: JSON.stringify({ nodeIds: deleteRequest.ids }) });
+      }
+      setDeleteRequest(null);
       await queryClient.invalidateQueries({ queryKey: ["listing"] });
       await queryClient.invalidateQueries({ queryKey: ["tree"] });
       await queryClient.invalidateQueries({ queryKey: ["drawers", projectId] });
@@ -482,8 +508,39 @@ export function ExplorerPage() {
     setShareId(selected.files[0] || selected.folders[0] || folderId || activeDrawer?.rootFolderId || null);
   }
   function beginDelete() {
-    if (selected.files.length) void remove(selected.files);
-    else if (selected.folders[0] && selected.folders[0] !== tree.data?.root.id) void remove(selected.folders);
+    if (selected.files.length) remove(selected.files);
+    else if (selected.folders[0] && selected.folders[0] !== tree.data?.root.id) remove(selected.folders.filter((id) => id !== tree.data?.root.id));
+    else if (selected.drawers[0]) {
+      const drawer = visibleDrawers.find((item) => item.id === selected.drawers[0]);
+      if (drawer) setDeleteRequest({ kind: "drawer", ids: [drawer.id], label: drawer.name });
+    }
+  }
+
+  function createParent(): string {
+    return selected.folders[0] || folderId || tree.data?.root.id || "";
+  }
+
+  function scopeName(parentId: string): string {
+    if (tree.data?.root.id === parentId) return activeDrawer?.name || "this drawer";
+    const folder = tree.data?.folders.find((item) => item.id === parentId);
+    if (folder) return folder.name;
+    if (listing.data?.folder.id === parentId) return listing.data.folder.name;
+    return activeDrawer?.name || "the selected folder";
+  }
+
+  function openFolderDialog(parentId: string) {
+    setCreateParentId(parentId);
+    setFolderDialog(true);
+  }
+
+  function openFileDialog(parentId: string) {
+    setCreateParentId(parentId);
+    setFileDialog(true);
+  }
+
+  function beginUpload(parentId: string) {
+    uploadParent.current = parentId;
+    fileInput.current?.click();
   }
 
   const ribbonSelection: RibbonSelection = {
@@ -608,14 +665,224 @@ export function ExplorerPage() {
       void navigate({ to: "/app/p/$projectId/settings", params: { projectId } });
       return;
     }
-    if (id === "new-folder") setFolderDialog(true);
-    if (id === "upload") fileInput.current?.click();
+    if (id === "new-folder") openFolderDialog(createParent());
+    if (id === "new-file") openFileDialog(createParent());
+    if (id === "upload") beginUpload(createParent());
     if (id === "rename") beginRename();
     if (id === "delete") beginDelete();
     if (id === "share") beginShare();
     if (id === "download") selected.files.forEach((nodeId) => window.open(`/api/nodes/${nodeId}/content?download=1`));
     if (id === "publish" && selected.files[0]) setPublishId(selected.files[0]);
   }
+
+  const signedInName = me.data?.user.name || me.data?.user.email || "";
+
+  function showNodeProperties(node: Node) {
+    setPropertiesTarget({
+      kind: node.kind,
+      id: node.id,
+      name: node.name,
+      path: activeDrawer ? backendDisplayPath(activeDrawer.bucket, node.backendKey) : node.backendKey,
+      size: node.size,
+      itemType: node.kind === "folder" ? "Folder" : typeLabel(node.name),
+      createdAt: node.cachedAt,
+      modifiedAt: node.modifiedAt,
+      owner: signedInName,
+      color: node.color,
+      starred: node.starred,
+      shareNodeId: node.id,
+    });
+    setPropertiesOpen(true);
+  }
+
+  function showDrawerProperties(drawer: Drawer) {
+    setPropertiesTarget({
+      kind: "drawer",
+      id: drawer.id,
+      name: drawer.name,
+      path: backendDisplayPath(drawer.bucket, drawer.prefix),
+      size: null,
+      itemType: "Drawer",
+      createdAt: drawer.createdAt,
+      modifiedAt: drawer.healthCheckedAt,
+      owner: signedInName,
+      color: drawer.color,
+      starred: drawer.starred,
+      shareNodeId: drawer.rootFolderId,
+    });
+    setPropertiesOpen(true);
+  }
+
+  function showSelectionProperties() {
+    const file = files.find((item) => item.id === selected.files[0]);
+    if (file) {
+      showNodeProperties(file);
+      return;
+    }
+    const folder =
+      tree.data?.folders.find((item) => item.id === selected.folders[0]) ??
+      (tree.data?.root.id === selected.folders[0] ? tree.data.root : null) ??
+      (listing.data?.folder.id === folderId ? listing.data.folder : null);
+    if (selected.folders[0] && folder) {
+      showNodeProperties(folder);
+      return;
+    }
+    const drawer = visibleDrawers.find((item) => item.id === selected.drawers[0]);
+    if (drawer) {
+      showDrawerProperties(drawer);
+      return;
+    }
+    setPropertiesTarget(null);
+    setPropertiesOpen(true);
+  }
+
+  async function patchNodeMeta(node: Node, body: { starred?: boolean; color?: LabelColor | null }) {
+    try {
+      await api(`/nodes/${node.id}`, { method: "PATCH", body: JSON.stringify(body) });
+      await queryClient.invalidateQueries({ queryKey: ["listing"] });
+      await queryClient.invalidateQueries({ queryKey: ["tree"] });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not update the item");
+    }
+  }
+
+  async function patchDrawerMeta(drawer: Drawer, body: { starred?: boolean; color?: LabelColor | null }) {
+    try {
+      await api(`/drawers/${drawer.id}`, { method: "PATCH", body: JSON.stringify(body) });
+      await queryClient.invalidateQueries({ queryKey: ["drawers", projectId] });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not update the drawer");
+    }
+  }
+
+  async function renameDrawer(drawer: Drawer) {
+    const message = objectNameError(renameValue);
+    if (message) {
+      toast.error(message);
+      return;
+    }
+    try {
+      await api(`/drawers/${drawer.id}`, { method: "PATCH", body: JSON.stringify({ name: renameValue.trim() }) });
+      setRenameDrawerId(null);
+      await queryClient.invalidateQueries({ queryKey: ["drawers", projectId] });
+      await queryClient.invalidateQueries({ queryKey: ["listing"] });
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Rename failed");
+    }
+  }
+
+  async function reorderDrawer(drawer: Drawer, direction: -1 | 1) {
+    const ids = visibleDrawers.map((item) => item.id);
+    const index = ids.indexOf(drawer.id);
+    const next = index + direction;
+    if (index < 0 || next < 0 || next >= ids.length) return;
+    const ordered = arrayMove(ids, index, next);
+    try {
+      await Promise.all(ordered.map((id, order) => api(`/drawers/${id}`, { method: "PATCH", body: JSON.stringify({ sortOrder: order + 1 }) })));
+      await queryClient.invalidateQueries({ queryKey: ["drawers", projectId] });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not reorder");
+    }
+  }
+
+  async function reorderNode(node: Node, siblings: Node[], direction: -1 | 1) {
+    if (!node.parentId) return;
+    const ids = siblings.map((item) => item.id);
+    const index = ids.indexOf(node.id);
+    const next = index + direction;
+    if (index < 0 || next < 0 || next >= ids.length) return;
+    try {
+      await api("/nodes/reorder", { method: "POST", body: JSON.stringify({ parentId: node.parentId, ids: arrayMove(ids, index, next) }) });
+      await queryClient.invalidateQueries({ queryKey: ["listing"] });
+      await queryClient.invalidateQueries({ queryKey: ["tree"] });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not reorder");
+    }
+  }
+
+  const menuActions: MenuActions = {
+    writesEnabled: !!writesEnabled,
+    openNewFolder: () => openFolderDialog(createParent()),
+    openNewFile: () => openFileDialog(createParent()),
+    openUpload: () => beginUpload(createParent()),
+    openProperties: () => showSelectionProperties(),
+    drawer(drawer, index, count) {
+      return {
+        starred: drawer.starred,
+        writesEnabled: !!writesEnabled,
+        canRename: true,
+        canDelete: true,
+        canMoveUp: index > 0,
+        canMoveDown: index < count - 1,
+        canCreate: !!drawer.rootFolderId,
+        onStar: () => void patchDrawerMeta(drawer, { starred: !drawer.starred }),
+        onColor: (color) => void patchDrawerMeta(drawer, { color }),
+        onRename: () => {
+          setRenameDrawerId(drawer.id);
+          setRenameValue(drawer.name);
+        },
+        onMoveUp: () => void reorderDrawer(drawer, -1),
+        onMoveDown: () => void reorderDrawer(drawer, 1),
+        onDelete: () => setDeleteRequest({ kind: "drawer", ids: [drawer.id], label: drawer.name }),
+        onNewFolder: () => drawer.rootFolderId && openFolderDialog(drawer.rootFolderId),
+        onNewFile: () => drawer.rootFolderId && openFileDialog(drawer.rootFolderId),
+        onUpload: () => drawer.rootFolderId && beginUpload(drawer.rootFolderId),
+        onProperties: () => showDrawerProperties(drawer),
+      };
+    },
+    folder(node, siblings) {
+      const index = siblings.findIndex((item) => item.id === node.id);
+      const root = node.parentId == null;
+      return {
+        starred: node.starred,
+        writesEnabled: !!writesEnabled,
+        canRename: !root,
+        canDelete: !root,
+        canMoveUp: !root && index > 0,
+        canMoveDown: !root && index >= 0 && index < siblings.length - 1,
+        canCreate: true,
+        onStar: () => void patchNodeMeta(node, { starred: !node.starred }),
+        onColor: (color) => void patchNodeMeta(node, { color }),
+        onRename: () => {
+          setRenameId(node.id);
+          setRenameValue(node.name);
+        },
+        onMoveUp: () => void reorderNode(node, siblings, -1),
+        onMoveDown: () => void reorderNode(node, siblings, 1),
+        onDelete: () => setDeleteRequest({ kind: "nodes", ids: [node.id], label: node.name }),
+        onNewFolder: () => openFolderDialog(node.id),
+        onNewFile: () => openFileDialog(node.id),
+        onUpload: () => beginUpload(node.id),
+        onProperties: () => showNodeProperties(node),
+      };
+    },
+    file(node, index, count) {
+      const parent = node.parentId || folderId;
+      return {
+        starred: node.starred,
+        writesEnabled: !!writesEnabled,
+        canRename: !!node.parentId,
+        canDelete: true,
+        canMoveUp: index > 0,
+        canMoveDown: index < count - 1,
+        canCreate: !!parent,
+        onPreview: () => setPreview(node),
+        onStar: () => void patchNodeMeta(node, { starred: !node.starred }),
+        onColor: (color) => void patchNodeMeta(node, { color }),
+        onRename: () => {
+          setRenameId(node.id);
+          setRenameValue(node.name);
+        },
+        onMoveUp: () => void reorderNode(node, files, -1),
+        onMoveDown: () => void reorderNode(node, files, 1),
+        onDelete: () => setDeleteRequest({ kind: "nodes", ids: [node.id], label: node.name }),
+        onNewFolder: () => parent && openFolderDialog(parent),
+        onNewFile: () => parent && openFileDialog(parent),
+        onUpload: () => parent && beginUpload(parent),
+        onProperties: () => showNodeProperties(node),
+      };
+    },
+  };
 
   const drawerPane = (
     <DrawerPane
@@ -629,6 +896,10 @@ export function ExplorerPage() {
       favorites={!!me.data?.preferences.favoritesOnly}
       starredFirst={!!me.data?.preferences.starredFirst}
       onToggle={(patch) => void savePrefs(patch)}
+      renameId={renameDrawerId}
+      renameValue={renameValue}
+      setRenameValue={setRenameValue}
+      onRename={(drawer) => void renameDrawer(drawer)}
     />
   );
   const folderPane = (
@@ -691,6 +962,7 @@ export function ExplorerPage() {
             onReorder={(activeId, overId) => rememberTabs(reorderCabinetTabs(tabsRef.current, activeId, overId))}
           />
           <div className="sheet">
+            <MenuContext.Provider value={menuActions}>
             <FileCenterRibbon
               tab={ribbonTab}
               onTabChange={setRibbonTab}
@@ -711,6 +983,8 @@ export function ExplorerPage() {
               onUp={goUp}
             />
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(event) => void onDragEnd(event)}>
+              <div className="flex min-h-0 flex-1">
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               {narrow ? (
                 <div className="flex min-h-0 flex-1 flex-col">
                   <div className="flex items-center gap-2 border-b border-[var(--line)] px-3 py-2">
@@ -739,6 +1013,9 @@ export function ExplorerPage() {
                   <Panel defaultSize={me.data?.preferences.paneSizes.files ?? 52} minSize={24}>{filePane}</Panel>
                 </PanelGroup>
               )}
+              </div>
+              {propertiesOpen && <PropertiesPane target={propertiesTarget} onClose={() => setPropertiesOpen(false)} />}
+              </div>
             </DndContext>
             <footer className="flex h-10 shrink-0 items-center border-t border-[var(--line)] px-4">
               <StatusCounts
@@ -747,12 +1024,14 @@ export function ExplorerPage() {
                 files={listing.data?.totalFiles ?? 0}
               />
             </footer>
+            </MenuContext.Provider>
           </div>
         </>
       )}
       <input ref={fileInput} type="file" multiple className="hidden" onChange={(event) => { if (event.target.files) void uploadList(event.target.files); event.target.value = ""; }} />
       <DrawerWizard open={wizard} onOpenChange={setWizard} projectId={projectId} projects={projects.data ?? []} />
-      <FolderDialog open={folderDialog} onOpenChange={setFolderDialog} drawerId={drawerId} parentId={selected.folders[0] || folderId || tree.data?.root.id || ""} />
+      <FolderDialog open={folderDialog} onOpenChange={setFolderDialog} drawerId={drawerId} parentId={createParentId || selected.folders[0] || folderId || tree.data?.root.id || ""} scopeLabel={scopeName(createParentId || selected.folders[0] || folderId || tree.data?.root.id || "")} />
+      <FileDialog open={fileDialog} onOpenChange={setFileDialog} drawerId={drawerId} folderId={createParentId || folderId || tree.data?.root.id || ""} scopeLabel={scopeName(createParentId || folderId || tree.data?.root.id || "")} />
       <ShareDialog nodeId={shareId} open={!!shareId} onOpenChange={(open) => !open && setShareId(null)} />
       <PublishDialog fileId={publishId} fileName={publishName} open={!!publishId} onOpenChange={(open) => !open && setPublishId(null)} />
       <PreviewSheet node={preview} onOpenChange={(open) => !open && setPreview(null)} />
@@ -785,16 +1064,13 @@ export function ExplorerPage() {
           </div>
         </DialogContent>
       </Dialog>
-      <AlertDialog open={deleteIds.length > 0} onOpenChange={(open) => !open && setDeleteIds([])}>
-        <AlertDialogContent>
-          <AlertDialogTitle>Delete {deleteIds.length} items?</AlertDialogTitle>
-          <AlertDialogDescription>Delete removes the selection on the backend, including everything inside a folder.</AlertDialogDescription>
-          <div className="mt-4 flex justify-end gap-2">
-            <AlertDialogCancel asChild><Button variant="outline">Cancel</Button></AlertDialogCancel>
-            <AlertDialogAction asChild><Button variant="destructive" onClick={() => void confirmDelete(deleteIds)}>Delete</Button></AlertDialogAction>
-          </div>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DeleteConfirm
+        open={!!deleteRequest}
+        title={deleteRequest ? `Delete ${deleteRequest.label}?` : "Delete?"}
+        description={deleteRequest?.kind === "drawer" ? "Delete removes this drawer from the cabinet." : "Delete removes the selection on the backend, including everything inside a folder."}
+        onOpenChange={(open) => !open && setDeleteRequest(null)}
+        onConfirm={() => void confirmDelete()}
+      />
       <CommandDialog open={palette} onOpenChange={setPalette}>
         <CommandInput placeholder="Jump or run a command" />
         <CommandList>
@@ -847,7 +1123,7 @@ function EmptyProjects({ onCreate }: { onCreate: () => void }) {
   );
 }
 
-function DrawerPane({ drawers, selected, activeId, search, onSearch, onChoose, onAdd, favorites, starredFirst, onToggle }: { drawers: Drawer[]; selected: string[]; activeId: string; search: ExplorerSearch; onSearch: (patch: Partial<ExplorerSearch>) => void; onChoose: (id: string, ids: string[], event: MouseEvent) => void; onAdd: () => void; favorites: boolean; starredFirst: boolean; onToggle: (patch: Partial<Preferences>) => void }) {
+function DrawerPane({ drawers, selected, activeId, search, onSearch, onChoose, onAdd, favorites, starredFirst, onToggle, renameId, renameValue, setRenameValue, onRename }: { drawers: Drawer[]; selected: string[]; activeId: string; search: ExplorerSearch; onSearch: (patch: Partial<ExplorerSearch>) => void; onChoose: (id: string, ids: string[], event: MouseEvent) => void; onAdd: () => void; favorites: boolean; starredFirst: boolean; onToggle: (patch: Partial<Preferences>) => void; renameId: string | null; renameValue: string; setRenameValue: (value: string) => void; onRename: (drawer: Drawer) => void }) {
   const ids = drawers.map((drawer) => drawer.id);
   return (
     <section className="flex h-full min-h-0 flex-col border-r border-[var(--line)]">
@@ -865,8 +1141,8 @@ function DrawerPane({ drawers, selected, activeId, search, onSearch, onChoose, o
           {drawers.length === 0 && !search.df && (
             <EmptyPane icon={<Folder className="h-5 w-5" />} title="No drawers yet" detail="A linked drawer uses your bucket. A hosted drawer uses the StorageFlow plan." />
           )}
-          {drawers.map((drawer) => (
-            <DrawerRow key={drawer.id} drawer={drawer} selected={selected.includes(drawer.id) || drawer.id === activeId} onClick={(event) => onChoose(drawer.id, ids, event)} />
+          {drawers.map((drawer, index) => (
+            <DrawerRow key={drawer.id} drawer={drawer} index={index} count={drawers.length} selected={selected.includes(drawer.id) || drawer.id === activeId} onClick={(event) => onChoose(drawer.id, ids, event)} rename={renameId === drawer.id} renameValue={renameValue} setRenameValue={setRenameValue} onRename={() => onRename(drawer)} />
           ))}
         </div>
       </SortableContext>
@@ -877,14 +1153,16 @@ function DrawerPane({ drawers, selected, activeId, search, onSearch, onChoose, o
   );
 }
 
-function DrawerRow({ drawer, selected, onClick }: { drawer: Drawer; selected: boolean; onClick: (event: MouseEvent) => void }) {
+function DrawerRow({ drawer, index, count, selected, onClick, rename, renameValue, setRenameValue, onRename }: { drawer: Drawer; index: number; count: number; selected: boolean; onClick: (event: MouseEvent) => void; rename: boolean; renameValue: string; setRenameValue: (value: string) => void; onRename: () => void }) {
+  const menus = useMenus();
   const sortable = useSortable({ id: drawer.id });
-  return (
+  const row = (
     <button
       ref={sortable.setNodeRef}
       style={{ transform: CSS.Transform.toString(sortable.transform), transition: sortable.transition }}
       className="cabinet-row"
       data-selected={selected}
+      data-kind="drawer"
       onClick={onClick}
       {...sortable.attributes}
       {...sortable.listeners}
@@ -892,12 +1170,18 @@ function DrawerRow({ drawer, selected, onClick }: { drawer: Drawer; selected: bo
       <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${drawer.color ? TINT[drawer.color] : "bg-amber-50 text-amber-600"}`}>
         <Folder className="h-4 w-4" />
       </span>
-      <span className="min-w-0 flex-1 truncate text-sm font-medium">{drawer.name}</span>
+      {rename ? (
+        <input className="h-7 flex-1 rounded-md border px-2" aria-label={`Rename ${drawer.name}`} value={renameValue} onChange={(event) => setRenameValue(event.target.value)} onKeyDown={(event) => event.key === "Enter" && onRename()} onClick={(event) => event.stopPropagation()} />
+      ) : (
+        <span className="min-w-0 flex-1 truncate text-sm font-medium">{drawer.name}</span>
+      )}
       {drawer.starred && <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />}
       <span className={`h-2 w-2 rounded-full ${drawer.healthOk === false ? "bg-red-500" : "bg-emerald-500"}`} title={drawer.healthMessage ?? "Reachable"} />
       {drawer.jobs[0] && <span className="text-xs text-[var(--ink-soft)]">{drawer.jobs[0].status}</span>}
     </button>
   );
+  if (!menus) return row;
+  return <ItemMenu {...menus.drawer(drawer, index, count)}>{row}</ItemMenu>;
 }
 
 function FolderPane({ root, rows, expanded, selected, openId, filter, onFilter, onToggle, onChoose, emptyFilter, renameId, renameValue, setRenameValue, onRename }: { root: Node | null; rows: Node[]; expanded: Set<string>; selected: string[]; openId: string; filter: string; onFilter: (value: string) => void; onToggle: (id: string) => void; onChoose: (id: string, ids: string[], event: MouseEvent) => void; emptyFilter: boolean; renameId: string | null; renameValue: string; setRenameValue: (value: string) => void; onRename: (node: Node) => void }) {
@@ -919,32 +1203,35 @@ function FolderPane({ root, rows, expanded, selected, openId, filter, onFilter, 
       <div className="min-h-0 flex-1 overflow-auto px-2 py-1">
         {!root && <EmptyPane icon={<FolderOpen className="h-5 w-5" />} title="No drawer selected" detail="Select a drawer from the left panel." />}
         {emptyFilter && <p className="px-2 py-6 text-center text-sm text-[var(--ink-soft)]">No names match <button className="text-[#1d4ed8]" onClick={() => onFilter("")}>Clear</button></p>}
-        {root && <FolderRow node={root} depth={0} expanded={expanded.has(root.id)} selected={selected.includes(root.id) || openId === root.id} onToggle={() => onToggle(root.id)} onClick={(event) => onChoose(root.id, ids, event)} rename={false} renameValue="" setRenameValue={setRenameValue} onRename={() => undefined} />}
+        {root && <FolderRow node={root} siblings={rows.filter((folder) => folder.parentId === root.id)} depth={0} expanded={expanded.has(root.id)} selected={selected.includes(root.id) || openId === root.id} onToggle={() => onToggle(root.id)} onClick={(event) => onChoose(root.id, ids, event)} rename={false} renameValue="" setRenameValue={setRenameValue} onRename={() => undefined} />}
         {rows.map((folder) => (
-          <FolderRow key={folder.id} node={folder} depth={depthOf(folder)} expanded={expanded.has(folder.id)} selected={selected.includes(folder.id) || openId === folder.id} onToggle={() => onToggle(folder.id)} onClick={(event) => onChoose(folder.id, ids, event)} rename={renameId === folder.id} renameValue={renameValue} setRenameValue={setRenameValue} onRename={() => onRename(folder)} />
+          <FolderRow key={folder.id} node={folder} siblings={rows.filter((item) => item.parentId === folder.parentId)} depth={depthOf(folder)} expanded={expanded.has(folder.id)} selected={selected.includes(folder.id) || openId === folder.id} onToggle={() => onToggle(folder.id)} onClick={(event) => onChoose(folder.id, ids, event)} rename={renameId === folder.id} renameValue={renameValue} setRenameValue={setRenameValue} onRename={() => onRename(folder)} />
         ))}
       </div>
     </section>
   );
 }
 
-function FolderRow({ node, depth, expanded, selected, onToggle, onClick, rename, renameValue, setRenameValue, onRename }: { node: Node; depth: number; expanded: boolean; selected: boolean; onToggle: () => void; onClick: (event: MouseEvent) => void; rename: boolean; renameValue: string; setRenameValue: (value: string) => void; onRename: () => void }) {
+function FolderRow({ node, siblings, depth, expanded, selected, onToggle, onClick, rename, renameValue, setRenameValue, onRename }: { node: Node; siblings: Node[]; depth: number; expanded: boolean; selected: boolean; onToggle: () => void; onClick: (event: MouseEvent) => void; rename: boolean; renameValue: string; setRenameValue: (value: string) => void; onRename: () => void }) {
+  const menus = useMenus();
   const drop = useDroppable({ id: `folder:${node.id}` });
-  return (
-    <div ref={drop.setNodeRef} className="flex items-center" style={{ paddingLeft: depth * 14 }}>
+  const row = (
+    <div ref={drop.setNodeRef} className="flex items-center" style={{ paddingLeft: depth * 14 }} data-kind="folder">
       <button aria-label={expanded ? "Collapse" : "Expand"} className="grid h-8 w-5 place-items-center text-[var(--ink-soft)]" onClick={onToggle}>
         <ChevronRight className={`h-3.5 w-3.5 ${expanded ? "rotate-90" : ""}`} />
       </button>
       <button className="cabinet-row" data-selected={selected || drop.isOver} onClick={onClick}>
         <Folder className={`h-4 w-4 shrink-0 ${node.color ? "text-current" : "text-amber-500"}`} />
         {rename ? (
-          <input className="h-7 flex-1 rounded-md border px-2" value={renameValue} onChange={(event) => setRenameValue(event.target.value)} onKeyDown={(event) => event.key === "Enter" && onRename()} onClick={(event) => event.stopPropagation()} />
+          <input className="h-7 flex-1 rounded-md border px-2" aria-label={`Rename ${node.name}`} value={renameValue} onChange={(event) => setRenameValue(event.target.value)} onKeyDown={(event) => event.key === "Enter" && onRename()} onClick={(event) => event.stopPropagation()} />
         ) : (
           <span className="truncate text-sm">{node.name}</span>
         )}
       </button>
     </div>
   );
+  if (!menus) return row;
+  return <ItemMenu {...menus.folder(node, siblings)}>{row}</ItemMenu>;
 }
 
 function FilePane(props: {
@@ -969,14 +1256,20 @@ function FilePane(props: {
   onRetry: (task: { file: File }) => void;
   onUpload: () => void;
 }) {
+  const menus = useMenus();
   const ids = props.files.map((file) => file.id);
   const filteredEmpty = !!props.filter && props.files.length === 0;
+  const canCreate = props.writesEnabled && !!props.listing;
   return (
     <section className="flex h-full min-h-0 flex-col">
       <div className="flex items-center gap-2 border-b border-[var(--line)] px-3 py-2">
         <span className="pane-label">Files</span>
         <Input aria-label="Filter files" value={props.filter} onChange={(event) => props.onFilter(event.target.value)} className="h-8 max-w-44" placeholder="Filter files" />
-        <div className="ml-auto flex gap-1">
+        <div className="ml-auto flex flex-wrap justify-end gap-1">
+          <Button size="sm" variant="outline" disabled={!canCreate} onClick={() => menus?.openNewFolder()}>New folder</Button>
+          <Button size="sm" variant="outline" disabled={!canCreate} onClick={() => menus?.openNewFile()}>New file</Button>
+          <Button size="sm" variant="outline" disabled={!canCreate} onClick={() => menus?.openUpload()}>Upload</Button>
+          <Button size="sm" variant="outline" onClick={() => menus?.openProperties()}>Properties</Button>
           <Button size="sm" variant={props.view === "grid" ? "secondary" : "ghost"} aria-label="Grid" onClick={() => props.onView("grid")}><LayoutGrid className="h-4 w-4" /></Button>
           <Button size="sm" variant={props.view === "list" ? "secondary" : "ghost"} aria-label="List" onClick={() => props.onView("list")}><List className="h-4 w-4" /></Button>
           <Button size="sm" variant={props.view === "details" ? "secondary" : "ghost"} aria-label="Details" onClick={() => props.onView("details")}><Table2 className="h-4 w-4" /></Button>
@@ -1011,14 +1304,14 @@ function FilePane(props: {
           <DetailsTable files={props.files} selected={props.selected} onChoose={props.onChoose} onSort={props.onSort} />
         ) : props.view === "list" ? (
           <div className="px-2 py-1">
-            {props.files.map((file) => (
-              <FileRow key={file.id} file={file} selected={props.selected.includes(file.id)} onClick={(event) => props.onChoose(file.id, ids, event)} onOpen={() => props.onOpen(file)} rename={props.renameId === file.id} renameValue={props.renameValue} setRenameValue={props.setRenameValue} onRename={() => props.onRename(file)} />
+            {props.files.map((file, index) => (
+              <FileRow key={file.id} file={file} index={index} count={props.files.length} selected={props.selected.includes(file.id)} onClick={(event) => props.onChoose(file.id, ids, event)} onOpen={() => props.onOpen(file)} rename={props.renameId === file.id} renameValue={props.renameValue} setRenameValue={props.setRenameValue} onRename={() => props.onRename(file)} />
             ))}
           </div>
         ) : (
           <div className="grid gap-3 p-3" style={{ gridTemplateColumns: `repeat(${[6, 5, 4, 3][props.zoom - 1] ?? 4}, minmax(0, 1fr))` }}>
-            {props.files.map((file) => (
-              <FileCard key={file.id} file={file} selected={props.selected.includes(file.id)} onClick={(event) => props.onChoose(file.id, ids, event)} onOpen={() => props.onOpen(file)} />
+            {props.files.map((file, index) => (
+              <FileCard key={file.id} file={file} index={index} count={props.files.length} selected={props.selected.includes(file.id)} onClick={(event) => props.onChoose(file.id, ids, event)} onOpen={() => props.onOpen(file)} />
             ))}
           </div>
         ))}
@@ -1033,38 +1326,37 @@ function FilePane(props: {
   );
 }
 
-function FileRow({ file, selected, onClick, onOpen, rename, renameValue, setRenameValue, onRename }: { file: Node; selected: boolean; onClick: (event: MouseEvent) => void; onOpen: () => void; rename: boolean; renameValue: string; setRenameValue: (value: string) => void; onRename: () => void }) {
+function FileRow({ file, index, count, selected, onClick, onOpen, rename, renameValue, setRenameValue, onRename }: { file: Node; index: number; count: number; selected: boolean; onClick: (event: MouseEvent) => void; onOpen: () => void; rename: boolean; renameValue: string; setRenameValue: (value: string) => void; onRename: () => void }) {
+  const menus = useMenus();
   const drag = useDraggable({ id: `node:${file.id}` });
-  return (
-    <ContextMenu>
-      <ContextMenuTrigger asChild>
-        <button ref={drag.setNodeRef} className="cabinet-row" data-selected={selected} onClick={onClick} onDoubleClick={onOpen} {...drag.listeners} {...drag.attributes}>
-          <FileGlyph name={file.name} />
-          {rename ? (
-            <input className="h-7 flex-1 rounded-md border px-2" value={renameValue} onChange={(event) => setRenameValue(event.target.value)} onKeyDown={(event) => event.key === "Enter" && onRename()} onClick={(event) => event.stopPropagation()} />
-          ) : (
-            <span className="min-w-0 flex-1 truncate text-sm">{file.incomplete ? "Incomplete · " : ""}{file.name}</span>
-          )}
-          <span className="text-xs text-[var(--ink-soft)]">{formatBytes(file.size)}</span>
-          {file.starred && <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />}
-        </button>
-      </ContextMenuTrigger>
-      <ContextMenuContent>
-        <ContextMenuItem onSelect={onOpen}>Preview</ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
+  const row = (
+    <button ref={drag.setNodeRef} className="cabinet-row" data-selected={selected} data-kind="file" onClick={onClick} onDoubleClick={onOpen} {...drag.listeners} {...drag.attributes}>
+      <FileGlyph name={file.name} />
+      {rename ? (
+        <input className="h-7 flex-1 rounded-md border px-2" aria-label={`Rename ${file.name}`} value={renameValue} onChange={(event) => setRenameValue(event.target.value)} onKeyDown={(event) => event.key === "Enter" && onRename()} onClick={(event) => event.stopPropagation()} />
+      ) : (
+        <span className="min-w-0 flex-1 truncate text-sm">{file.incomplete ? "Incomplete · " : ""}{file.name}</span>
+      )}
+      <span className="text-xs text-[var(--ink-soft)]">{formatBytes(file.size)}</span>
+      {file.starred && <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />}
+    </button>
   );
+  if (!menus) return row;
+  return <ItemMenu {...menus.file(file, index, count)}>{row}</ItemMenu>;
 }
 
-function FileCard({ file, selected, onClick, onOpen }: { file: Node; selected: boolean; onClick: (event: MouseEvent) => void; onOpen: () => void }) {
+function FileCard({ file, index, count, selected, onClick, onOpen }: { file: Node; index: number; count: number; selected: boolean; onClick: (event: MouseEvent) => void; onOpen: () => void }) {
+  const menus = useMenus();
   const drag = useDraggable({ id: `node:${file.id}` });
-  return (
-    <button ref={drag.setNodeRef} className="flex flex-col items-center gap-2 rounded-xl border border-[var(--line)] bg-white p-3 text-center hover:border-[#cdd5e0] data-[selected=true]:border-[#93c5fd] data-[selected=true]:bg-[#eef4ff]" data-selected={selected} onClick={onClick} onDoubleClick={onOpen} {...drag.listeners} {...drag.attributes}>
+  const card = (
+    <button ref={drag.setNodeRef} className="flex flex-col items-center gap-2 rounded-xl border border-[var(--line)] bg-white p-3 text-center hover:border-[#cdd5e0] data-[selected=true]:border-[#93c5fd] data-[selected=true]:bg-[#eef4ff]" data-selected={selected} data-kind="file" onClick={onClick} onDoubleClick={onOpen} {...drag.listeners} {...drag.attributes}>
       <FileGlyph name={file.name} large />
       <span className="w-full truncate text-sm">{file.name}</span>
       <span className="text-xs text-[var(--ink-soft)]">{typeLabel(file.name)}</span>
     </button>
   );
+  if (!menus) return card;
+  return <ItemMenu {...menus.file(file, index, count)}>{card}</ItemMenu>;
 }
 
 const columnHelper = createColumnHelper<Node>();
@@ -1086,6 +1378,7 @@ const columns = [
 ];
 
 export function DetailsTable({ files, selected, onChoose, onSort }: { files: Node[]; selected: string[]; onChoose: (id: string, ids: string[], event: MouseEvent) => void; onSort: (sort: string) => void }) {
+  const menus = useMenus();
   const table = useReactTable({ data: files, columns, getCoreRowModel: getCoreRowModel() });
   const ids = files.map((file) => file.id);
   return (
@@ -1102,13 +1395,21 @@ export function DetailsTable({ files, selected, onChoose, onSort }: { files: Nod
         ))}
       </thead>
       <tbody>
-        {table.getRowModel().rows.map((row) => (
-          <tr key={row.id} data-selected={selected.includes(row.original.id)} className="h-12 hover:bg-[#f8fafc] data-[selected=true]:bg-[#eef4ff]" onClick={(event) => onChoose(row.original.id, ids, event)}>
-            {row.getVisibleCells().map((cell) => (
-              <td key={cell.id} className="border-b border-[var(--line)] px-4">{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
-            ))}
-          </tr>
-        ))}
+        {table.getRowModel().rows.map((row, index) => {
+          const line = (
+            <tr key={row.id} data-selected={selected.includes(row.original.id)} data-kind="file" className="h-12 hover:bg-[#f8fafc] data-[selected=true]:bg-[#eef4ff]" onClick={(event) => onChoose(row.original.id, ids, event)}>
+              {row.getVisibleCells().map((cell) => (
+                <td key={cell.id} className="border-b border-[var(--line)] px-4">{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
+              ))}
+            </tr>
+          );
+          if (!menus) return line;
+          return (
+            <ItemMenu key={row.id} {...menus.file(row.original, index, files.length)}>
+              {line}
+            </ItemMenu>
+          );
+        })}
       </tbody>
     </table>
   );
