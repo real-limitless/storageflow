@@ -134,10 +134,19 @@ export async function signUp(deps: Deps, body: Record<string, unknown>): Promise
   return rows[0];
 }
 
+function accountCanUsePassword(user: Row): void {
+  if (String(user.kind) === "service") {
+    throw new HttpError(401, "unauthorized", "Service accounts sign in with an API key");
+  }
+  if (user.disabled_at) throw new HttpError(403, "disabled", "This account is disabled");
+}
+
 export async function signIn(deps: Deps, email: string, password: string): Promise<{ token: string; user: Row; tenantId: string | null }> {
   const rows = await deps.db.query<Row>(`SELECT * FROM users WHERE email = $1`, [email.trim().toLowerCase()]);
   const user = rows[0];
-  if (!user?.password_hash || !verifyPassword(password, String(user.password_hash))) {
+  if (!user) throw new HttpError(401, "unauthorized", "Email or password is wrong");
+  accountCanUsePassword(user);
+  if (!user.password_hash || !verifyPassword(password, String(user.password_hash))) {
     throw new HttpError(401, "unauthorized", "Email or password is wrong");
   }
   const memberships = await membershipsOf(deps, String(user.id));
@@ -151,9 +160,9 @@ export async function signIn(deps: Deps, email: string, password: string): Promi
 
 export async function startMagicLink(deps: Deps, email: string): Promise<{ sent: true; devToken?: string }> {
   const normalized = email.trim().toLowerCase();
-  const users = await deps.db.query<Row>(`SELECT id FROM users WHERE email = $1`, [normalized]);
+  const users = await deps.db.query<Row>(`SELECT id, kind, disabled_at FROM users WHERE email = $1`, [normalized]);
   const token = secretToken();
-  if (users[0]) {
+  if (users[0] && String(users[0].kind) !== "service" && !users[0].disabled_at) {
     await deps.db.query(`INSERT INTO magic_links (token_hash, email, expires_at, created_at) VALUES ($1,$2,$3,$4)`, [
       sha256(token),
       normalized,
@@ -171,6 +180,7 @@ export async function consumeMagicLink(deps: Deps, token: string): Promise<{ tok
   await deps.db.query(`DELETE FROM magic_links WHERE token_hash = $1`, [sha256(token)]);
   const users = await deps.db.query<Row>(`SELECT * FROM users WHERE email = $1`, [String(link.email)]);
   if (!users[0]) throw new HttpError(401, "unauthorized", "This link is not valid");
+  accountCanUsePassword(users[0]);
   const memberships = await membershipsOf(deps, String(users[0].id));
   const tenantId = memberships[0]?.tenantId ?? null;
   const session = await createSession(deps, { userId: String(users[0].id), tenantId, kind: "member" });

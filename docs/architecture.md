@@ -23,6 +23,10 @@ Admin processes use the `gateway` remote and the `admin` key. `s3-acme` uses `ga
 
 The operator console, guest portal, and public transfer service sit on this plane. Postgres holds tenants, projects, drawers, grants, and the listing cache. Bytes stay on the drawer backend. Hosted drawers for tenant `acme` use `s3-acme` and the `acme-plain` bucket. The API streams a linked or hosted object to a guest or a transfer ticket so the backend credential is not handed out. One `serve s3` process per tenant stays the isolation rule.
 
+## Team
+
+The tenant is the team. `memberships.role` is `owner` or `member`. There is no second team table. Cabinets are `projects` rows inside the tenant, and drawers belong to a cabinet. `access.ts` loads drawers and nodes with `tenant_id`, so one team cannot read another team's drawers.
+
 ## Modes
 
 Write-through (`s3-through`) waits for the backend. Write-back (`s3-cache`, `s3-acme`) lands in a local VFS cache, then flushes.

@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
 import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+import type { GrantVerb } from "@storageflow/domain";
+import { normalizeScopes } from "@storageflow/domain";
 import { sha256 } from "./crypto.js";
 import { HttpError, asObject, contentDisposition } from "./http.js";
 import { mapActivity, type Row } from "./mappers.js";
@@ -22,6 +24,7 @@ import {
   moveNodes,
   openContent,
   patchNode,
+  reorderNodes,
   searchProject,
   startUpload,
   testDrawer,
@@ -48,6 +51,8 @@ import {
   switchTenant,
   updateProfile,
 } from "./services/account.js";
+import { createTeamUser, deleteTeamUser, disableTeamUser, issueApiKey, listAudit, readRetention, updateRetention } from "./services/admin.js";
+import { listFileVersions, openFileVersion, restoreFileVersion } from "./services/versions.js";
 import { createGrant, listGrants, openPortal, portalActivity, portalHome, revokeGrant } from "./services/sharing.js";
 import { catalog, createTicket, publicMetadata, publishFile, readTicket, reportAbuse, streamTicket, unpublish, updateTransferSettings } from "./services/transfer.js";
 
@@ -57,12 +62,26 @@ type AppEnv = {
     portalSession: Row | null;
     user: Row | null;
     token: string | null;
+    apiScopes: GrantVerb[] | null;
   };
 };
 
 const SESSION = "sf_session";
 const PORTAL = "sf_portal";
 const VISITOR = "sf_visitor";
+
+function readKeyScopes(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(String);
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (Array.isArray(parsed)) return parsed.map(String);
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
 
 async function readBody(c: { req: { text: () => Promise<string> } }): Promise<Record<string, unknown>> {
   const text = await c.req.text();
@@ -92,6 +111,34 @@ export function createApp(deps: Deps) {
     c.set("portalSession", null);
     c.set("user", null);
     c.set("token", null);
+    c.set("apiScopes", null);
+    const bearer = /^Bearer\s+(\S+)/i.exec(c.req.header("authorization") ?? "");
+    if (bearer?.[1]?.startsWith("sfk_")) {
+      const presented = bearer[1];
+      const keys = await deps.db.query<Row>("SELECT * FROM api_keys WHERE key_hash = $1", [sha256(presented)]);
+      const key = keys[0];
+      if (!key) throw new HttpError(401, "unauthorized", "API key is not valid");
+      if (key.expires_at && new Date(String(key.expires_at)).getTime() <= deps.now().getTime()) {
+        throw new HttpError(401, "unauthorized", "API key expired");
+      }
+      const users = await deps.db.query<Row>("SELECT * FROM users WHERE id = $1", [String(key.user_id)]);
+      const user = users[0];
+      if (!user || String(user.kind) !== "service") throw new HttpError(401, "unauthorized", "API key is not valid");
+      if (user.disabled_at) throw new HttpError(403, "disabled", "This account is disabled");
+      const rawScopes = readKeyScopes(key.scopes);
+      const scopes = normalizeScopes(rawScopes);
+      if (!scopes) throw new HttpError(401, "unauthorized", "API key is not valid");
+      c.set("user", user);
+      c.set("apiScopes", scopes);
+      c.set("session", {
+        user_id: user.id,
+        active_tenant_id: key.tenant_id,
+        kind: "member",
+        expires_at: new Date(deps.now().getTime() + 60_000).toISOString(),
+      });
+      await next();
+      return;
+    }
     const token = getCookie(c, SESSION);
     const portalToken = getCookie(c, PORTAL);
     if (token) {
@@ -102,7 +149,8 @@ export function createApp(deps: Deps) {
         c.set("token", token);
         if (session.user_id) {
           const users = await deps.db.query<Row>("SELECT * FROM users WHERE id = $1", [String(session.user_id)]);
-          if (users[0]) c.set("user", users[0]);
+          const user = users[0];
+          if (user && !user.disabled_at && String(user.kind) !== "service") c.set("user", user);
         }
       }
     }
@@ -125,11 +173,14 @@ export function createApp(deps: Deps) {
     return { user, session };
   }
 
-  async function member(c: { get: (key: "session" | "user") => Row | null }): Promise<MemberActor> {
-    const { user, session } = await signedIn(c);
+  async function member(c: { get: (key: "session" | "user" | "apiScopes") => unknown }): Promise<MemberActor> {
+    const session = c.get("session") as Row | null;
+    const user = c.get("user") as Row | null;
+    if (!session || !user) throw new HttpError(401, "unauthorized", "Sign in");
     if (!session.active_tenant_id) throw new HttpError(409, "tenant_required", "Choose a workspace");
     const role = await membershipRole(deps.db, String(session.active_tenant_id), String(user.id));
     if (!role) throw new HttpError(403, "forbidden", "You are not in this workspace");
+    const scopes = c.get("apiScopes") as GrantVerb[] | null;
     return {
       kind: "member",
       userId: String(user.id),
@@ -138,6 +189,7 @@ export function createApp(deps: Deps) {
       tenantId: String(session.active_tenant_id),
       tenantRole: role,
       transferPlan: String(user.transfer_plan) === "paid" ? "paid" : "free",
+      scopes: scopes ?? undefined,
     };
   }
 
@@ -158,7 +210,7 @@ export function createApp(deps: Deps) {
   }
 
   async function actorForUpload(c: Parameters<typeof member>[0] & { get: (key: "portalSession") => Row | null }, tenantId: string) {
-    const session = c.get("session");
+    const session = c.get("session") as Row | null;
     if (session?.active_tenant_id && String(session.active_tenant_id) === tenantId && c.get("user")) return member(c);
     const portal = c.get("portalSession");
     if (portal && String(portal.active_tenant_id) === tenantId) return guest(c);
@@ -266,6 +318,23 @@ export function createApp(deps: Deps) {
     return c.json(await getMe(deps, users[0], session?.active_tenant_id ? String(session.active_tenant_id) : null));
   });
 
+  app.post("/admin/users", async (c) => c.json(await createTeamUser(deps, await member(c), await readBody(c)), 201));
+
+  app.post("/admin/users/:id/disable", async (c) => c.json(await disableTeamUser(deps, await member(c), c.req.param("id"))));
+
+  app.delete("/admin/users/:id", async (c) => {
+    await deleteTeamUser(deps, await member(c), c.req.param("id"));
+    return c.body(null, 204);
+  });
+
+  app.post("/admin/users/:id/keys", async (c) => c.json(await issueApiKey(deps, await member(c), c.req.param("id"), await readBody(c)), 201));
+
+  app.get("/admin/retention", async (c) => c.json(await readRetention(deps, await member(c))));
+
+  app.patch("/admin/retention", async (c) => c.json(await updateRetention(deps, await member(c), await readBody(c))));
+
+  app.get("/audit", async (c) => c.json(await listAudit(deps, await member(c))));
+
   app.patch("/transfer-settings", async (c) => {
     const actor = await member(c);
     return c.json(await updateTransferSettings(deps, actor, await readBody(c)));
@@ -345,6 +414,8 @@ export function createApp(deps: Deps) {
     return c.json(await completeUpload(deps, actor, c.req.param("id"), await readBody(c)));
   });
 
+  app.post("/nodes/reorder", async (c) => c.json(await reorderNodes(deps, await member(c), await readBody(c))));
+
   app.post("/nodes/move", async (c) => c.json(await moveNodes(deps, await member(c), await readBody(c))));
 
   app.post("/nodes/copy", async (c) => c.json(await copyNodes(deps, await member(c), await readBody(c)), 202));
@@ -354,6 +425,25 @@ export function createApp(deps: Deps) {
   app.patch("/nodes/:id", async (c) => c.json(await patchNode(deps, await member(c), c.req.param("id"), await readBody(c))));
 
   app.get("/nodes/:id/content", async (c) => sendContent(c, await member(c), c.req.param("id")));
+
+  app.get("/nodes/:id/versions", async (c) => c.json(await listFileVersions(deps, await member(c), c.req.param("id"))));
+
+  app.get("/nodes/:id/versions/:version/content", async (c) => {
+    const opened = await openFileVersion(deps, await member(c), c.req.param("id"), Number(c.req.param("version")));
+    return new Response(opened.stream, {
+      status: 200,
+      headers: {
+        "content-type": opened.contentType,
+        "content-disposition": contentDisposition("attachment", opened.name),
+        "content-length": String(opened.size),
+        "cache-control": "private",
+      },
+    });
+  });
+
+  app.post("/nodes/:id/versions/:version/restore", async (c) =>
+    c.json(await restoreFileVersion(deps, await member(c), c.req.param("id"), Number(c.req.param("version")))),
+  );
 
   app.get("/nodes/:id/grants", async (c) => c.json(await listGrants(deps, await member(c), c.req.param("id"))));
 

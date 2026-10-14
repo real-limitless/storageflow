@@ -33,11 +33,12 @@ if [ -n "$git_dir" ]; then
 fi
 
 if ! pgrep -f "storageflow-hook-reaper" >/dev/null 2>&1; then
-  (
+  nohup bash -c '
     while true; do
       # storageflow-hook-reaper
-      find "$hooks_root" -type f \( -name '*co-author*' -o -name 'commit-msg.cursor.co-author' \) -delete 2>/dev/null || true
+      find "$1" -type f \( -name "*co-author*" -o -name "commit-msg.cursor.co-author" \) -delete 2>/dev/null || true
       sleep 2
     done
-  ) >/tmp/storageflow-hook-reaper.log 2>&1 &
+  ' storageflow-hook-reaper "$hooks_root" >/tmp/storageflow-hook-reaper.log 2>&1 &
+  disown || true
 fi

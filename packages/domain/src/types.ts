@@ -28,6 +28,9 @@ export type Visibility = (typeof VISIBILITIES)[number];
 export const MEMBER_ROLES = ["owner", "member"] as const;
 export type MemberRole = (typeof MEMBER_ROLES)[number];
 
+export const USER_KINDS = ["user", "service"] as const;
+export type UserKind = (typeof USER_KINDS)[number];
+
 export interface Project {
   id: string;
   tenantId: string;
@@ -89,6 +92,7 @@ export interface Node {
   modifiedAt: string | null;
   starred: boolean;
   color: LabelColor | null;
+  sortOrder: number;
   incomplete: boolean;
   cachedAt: string;
 }
@@ -263,6 +267,47 @@ export interface TestResult {
   ok: boolean;
   message?: string;
   names: string[];
+}
+
+export interface TeamUser {
+  id: string;
+  email: string;
+  name: string;
+  kind: UserKind;
+  role: MemberRole;
+  disabledAt: string | null;
+  createdAt: string;
+}
+
+export interface IssuedApiKey {
+  id: string;
+  userId: string;
+  name: string;
+  prefix: string;
+  scopes: GrantVerb[];
+  expiresAt: string | null;
+  createdAt: string;
+  token: string;
+}
+
+export interface FileVersionView {
+  id: string;
+  nodeId: string;
+  version: number;
+  storageKey: string;
+  size: number | null;
+  authorUserId: string | null;
+  createdAt: string;
+}
+
+export interface AuditEvent {
+  id: string;
+  actorUserId: string | null;
+  action: string;
+  targetType: string | null;
+  targetId: string | null;
+  detail: Record<string, unknown>;
+  createdAt: string;
 }
 
 export interface UploadTicket {
