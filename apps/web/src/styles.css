@@ -50,8 +50,8 @@
   --ink: #1c2430;
   --ink-soft: #667085;
   --line: #e6e8ee;
-  --tab: #eee9ff;
-  --tab-ink: #5b4bdb;
+  --tab: #ffffff;
+  --tab-ink: #1c2430;
 }
 
 [data-density="comfortable"] {
@@ -104,18 +104,40 @@ button, input, textarea { font: inherit; }
 .place-tab {
   display: inline-flex;
   align-items: center;
+  gap: 0.35rem;
   height: 2rem;
-  padding: 0 0.8rem;
+  max-width: 16rem;
+  padding: 0 0.35rem 0 0.8rem;
+  border: 1px solid transparent;
+  border-bottom: 0;
   border-radius: 8px 8px 0 0;
   background: transparent;
   color: var(--ink-soft);
   font-size: 0.875rem;
+  cursor: grab;
 }
 
 .place-tab[data-active="true"] {
   background: var(--tab);
   color: var(--tab-ink);
   font-weight: 600;
+  border-color: var(--line);
+  box-shadow: inset 0 -2px 0 var(--tab-ink);
+}
+
+.place-tab-close {
+  display: grid;
+  width: 1.25rem;
+  height: 1.25rem;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--ink-soft);
+}
+
+.place-tab-close:hover,
+.place-tab-close:focus-visible {
+  background: #eef1f4;
+  color: var(--ink);
 }
 
 .sheet {

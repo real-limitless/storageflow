@@ -14,6 +14,7 @@ import {
   type FolderTree,
   type GrantView,
   type Listing,
+  type LocationTab,
   type Me,
   type Node,
   type Preferences,
@@ -24,8 +25,10 @@ import { ChevronRight, File, FileText, Folder, FolderOpen, FolderPlus, Image as 
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { toast } from "sonner";
-import { DrawerWizard, FolderDialog, ProjectCreateDialog, PublishDialog, ShareDialog } from "@/components/dialogs";
+import { CabinetTabs } from "@/components/cabinet-tabs";
+import { DrawerWizard, FolderDialog, PublishDialog, ShareDialog } from "@/components/dialogs";
 import { AppShell } from "@/components/header";
+import { buildLocationUrl, cabinetTabs, closeCabinetTab, neighborAfterClose, openOrRestoreCabinet, parseLocationUrl, projectIdFromUrl, reorderCabinetTabs, upsertCabinetTab } from "@/lib/cabinets";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -98,6 +101,10 @@ export function ExplorerPage() {
   const [renameValue, setRenameValue] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
   const paneTimer = useRef<number | undefined>(undefined);
+  const tabsRef = useRef<LocationTab[]>([]);
+  const closedTabs = useRef<Map<string, LocationTab>>(new Map());
+  const suppressProject = useRef<string | null>(null);
+  const prefWrite = useRef(0);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   const me = useQuery({ queryKey: ["me"], queryFn: () => api<Me>("/me") });
@@ -149,14 +156,128 @@ export function ExplorerPage() {
   }, []);
 
   useEffect(() => {
+    tabsRef.current = cabinetTabs(me.data?.preferences.locationTabs ?? []);
+  }, [me.data?.preferences.locationTabs]);
+
+  function rememberTabs(next: LocationTab[], lastProjectId?: string | null) {
+    const ticket = ++prefWrite.current;
+    tabsRef.current = next;
+    queryClient.setQueryData<Me>(["me"], (current) =>
+      current
+        ? {
+            ...current,
+            preferences: {
+              ...current.preferences,
+              locationTabs: next,
+              lastProjectId: lastProjectId === undefined ? current.preferences.lastProjectId : lastProjectId,
+            },
+          }
+        : current,
+    );
+    const body = lastProjectId === undefined ? { locationTabs: next } : { locationTabs: next, lastProjectId };
+    void api<Preferences>("/me/preferences", { method: "PATCH", body: JSON.stringify(body) }).then((saved) => {
+      if (ticket !== prefWrite.current) return;
+      queryClient.setQueryData<Me>(["me"], (current) => (current ? { ...current, preferences: saved } : current));
+    });
+  }
+
+  function followTab(tab: LocationTab) {
+    const parsed = parseLocationUrl(tab.url);
+    const nextSearch = validateExplorerSearch(parsed.search);
+    if (tab.select) nextSearch.select = tab.select;
+    const targetProject = parsed.projectId || tab.projectId || "";
+    if (!targetProject) return;
+    if (parsed.drawerId && parsed.folderId) {
+      void navigate({
+        to: "/app/p/$projectId/d/$drawerId/f/$folderId",
+        params: { projectId: targetProject, drawerId: parsed.drawerId, folderId: parsed.folderId },
+        search: nextSearch,
+      });
+      return;
+    }
+    void navigate({ to: "/app/p/$projectId", params: { projectId: targetProject }, search: nextSearch });
+  }
+
+  function openCabinet(item: Project) {
+    suppressProject.current = null;
+    const closed = closedTabs.current.get(item.id);
+    const { tabs, target } = openOrRestoreCabinet(tabsRef.current, closed, item.id);
+    if (target) {
+      if (!tabsRef.current.some((tab) => tab.projectId === item.id)) {
+        closedTabs.current.delete(item.id);
+        rememberTabs(tabs, item.id);
+      }
+      followTab(target);
+      return;
+    }
+    void navigate({ to: "/app/p/$projectId", params: { projectId: item.id }, search: validateExplorerSearch({}) });
+  }
+
+  function closeTab(id: string) {
+    const existing = tabsRef.current.find((tab) => tab.projectId === id);
+    if (existing) closedTabs.current.set(id, existing);
+    const neighbor = neighborAfterClose(tabsRef.current, id);
+    const next = closeCabinetTab(tabsRef.current, id);
+    if (id === projectId) suppressProject.current = id;
+    rememberTabs(next, id === projectId ? null : undefined);
+    if (id !== projectId) return;
+    if (neighbor) followTab(neighbor);
+    else void navigate({ to: "/app" });
+  }
+
+  const searchKey = JSON.stringify(search);
+  useEffect(() => {
+    const routedProjectId = projectIdFromUrl(pathname);
     if (!projectId || !me.data) return;
-    const title = [project?.name, activeDrawer?.name, listing.data?.folder.name].filter(Boolean).join(" / ");
-    const tabs = me.data.preferences.locationTabs.filter((tab) => tab.url !== pathname);
-    const next = [{ id: pathname, url: pathname, title: title || "Cabinet" }, ...tabs].slice(0, 12);
-    const same = JSON.stringify(next) === JSON.stringify(me.data.preferences.locationTabs) && me.data.preferences.lastProjectId === projectId;
+    if (routedProjectId && routedProjectId !== projectId) return;
+    if (suppressProject.current === projectId) return;
+    const url = buildLocationUrl(pathname, search);
+    const title = project?.name || tabsRef.current.find((tab) => tab.projectId === projectId)?.title || "Cabinet";
+    const next = upsertCabinetTab(tabsRef.current, { id: projectId, projectId, url, title, select: search.select });
+    const previous = cabinetTabs(tabsRef.current);
+    const stored = me.data.preferences.locationTabs;
+    const same =
+      next.length === previous.length &&
+      next.every((tab, index) => {
+        const prior = previous[index];
+        const saved = stored.find((item) => (item.projectId || projectIdFromUrl(item.url) || item.id) === tab.projectId);
+        return (
+          prior?.projectId === tab.projectId &&
+          prior.url === tab.url &&
+          prior.title === tab.title &&
+          (prior.select ?? "") === (tab.select ?? "") &&
+          saved?.url === tab.url &&
+          saved.title === tab.title &&
+          (saved.select ?? "") === (tab.select ?? "")
+        );
+      }) &&
+      stored.length === next.length &&
+      me.data.preferences.lastProjectId === projectId;
     if (same) return;
-    void api("/me/preferences", { method: "PATCH", body: JSON.stringify({ locationTabs: next, lastProjectId: projectId }) });
-  }, [pathname, projectId, project?.name, activeDrawer?.name, listing.data?.folder.name, me.data]);
+    rememberTabs(next, projectId);
+  }, [pathname, projectId, project?.name, searchKey, me.data]);
+
+  useEffect(() => {
+    const id = search.select;
+    if (!id) return;
+    setSelected((current) => {
+      if (drawers.data?.some((drawer) => drawer.id === id)) {
+        if (current.drawers.length === 1 && current.drawers[0] === id) return current;
+        return { ...current, drawers: [id] };
+      }
+      if (tree.data && (tree.data.root.id === id || tree.data.folders.some((folder) => folder.id === id))) {
+        if (current.folders.length === 1 && current.folders[0] === id) return current;
+        return { ...current, folders: [id] };
+      }
+      const listedFiles = listing.data?.files ?? [];
+      const listedFolders = listing.data?.folders ?? [];
+      if (listedFiles.some((file) => file.id === id) || listedFolders.some((folder) => folder.id === id)) {
+        if (current.files.length === 1 && current.files[0] === id) return current;
+        return { ...current, files: [id] };
+      }
+      return current;
+    });
+  }, [search.select, drawers.data, tree.data, listing.data]);
 
   function patchSearch(patch: Partial<ExplorerSearch>) {
     const next = { ...search, ...patch };
@@ -171,13 +292,21 @@ export function ExplorerPage() {
     if (!drawer.rootFolderId) return;
     setFocus("folders");
     setStep("folders");
-    void navigate({ to: "/app/p/$projectId/d/$drawerId/f/$folderId", params: { projectId, drawerId: drawer.id, folderId: drawer.rootFolderId }, search });
+    void navigate({
+      to: "/app/p/$projectId/d/$drawerId/f/$folderId",
+      params: { projectId, drawerId: drawer.id, folderId: drawer.rootFolderId },
+      search: { ...search, select: drawer.id },
+    });
   }
 
   function openFolder(id: string) {
     if (!drawerId) return;
     setStep("files");
-    void navigate({ to: "/app/p/$projectId/d/$drawerId/f/$folderId", params: { projectId, drawerId, folderId: id }, search });
+    void navigate({
+      to: "/app/p/$projectId/d/$drawerId/f/$folderId",
+      params: { projectId, drawerId, folderId: id },
+      search: { ...search, select: id },
+    });
   }
 
   function choose(pane: Pane, id: string, ids: string[], event: MouseEvent, open?: () => void) {
@@ -267,6 +396,7 @@ export function ExplorerPage() {
       if (event.key === "Escape") {
         setSelected({ drawers: [], folders: [], files: [] });
         setPreview(null);
+        if (search.select) patchSearch({ select: "" });
       }
       if (event.key === "F2" && focus === "files" && selected.files[0]) {
         const node = listing.data?.files.find((file) => file.id === selected.files[0]);
@@ -332,7 +462,6 @@ export function ExplorerPage() {
   const publishName = files.find((file) => file.id === publishId)?.name ?? "";
   const uploadTasks = useUploads().filter((task) => task.folderId === folderId && task.status !== "done");
 
-  const placeTitle = [project?.name, activeDrawer?.name, listing.data && listing.data.folder.id !== activeDrawer?.rootFolderId ? listing.data.folder.name : null].filter(Boolean).join(" / ") || "Cabinet";
   const renameTarget = files.find((file) => file.id === selected.files[0]) ?? tree.data?.folders.find((folder) => folder.id === selected.folders[0]);
   function beginRename() {
     if (!renameTarget || !renameTarget.parentId) return;
@@ -392,7 +521,7 @@ export function ExplorerPage() {
       onSort={(sort) => patchSearch({ sort, dir: search.sort === sort && search.dir === "asc" ? "desc" : "asc" })}
       onView={(next) => { patchSearch({ view: next }); void savePrefs({ viewMode: next }); }}
       onZoom={(next) => void savePrefs({ zoom: next })}
-      onChoose={(id, ids, event) => choose("files", id, ids, event)}
+      onChoose={(id, ids, event) => choose("files", id, ids, event, () => patchSearch({ select: id }))}
       onOpen={(node) => setPreview(node)}
       renameId={renameId}
       renameValue={renameValue}
@@ -405,16 +534,21 @@ export function ExplorerPage() {
   );
 
   return (
-    <AppShell project={project} onCreateProject={() => setCreateProject(true)} portalSlug={portalSlug}>
+    <AppShell project={project} onOpenCabinet={openCabinet} createOpen={createProject} onCreateOpenChange={setCreateProject} portalSlug={portalSlug}>
       {!projectId && <EmptyProjects onCreate={() => setCreateProject(true)} />}
       {projectId && (
         <>
-          <div className="flex items-end gap-1 px-4 pt-3">
-            <button className="place-tab" data-active="true">{placeTitle}</button>
-            {(me.data?.preferences.locationTabs ?? []).filter((tab) => tab.url !== pathname).slice(0, 4).map((tab) => (
-              <button key={tab.id} className="place-tab" onClick={() => window.location.assign(tab.url)}>{tab.title}</button>
-            ))}
-          </div>
+          <CabinetTabs
+            tabs={
+              project && !cabinetTabs(me.data?.preferences.locationTabs ?? []).some((tab) => tab.projectId === projectId)
+                ? upsertCabinetTab(me.data?.preferences.locationTabs ?? [], { id: projectId, projectId, url: buildLocationUrl(pathname, search), title: project.name, select: search.select })
+                : cabinetTabs(me.data?.preferences.locationTabs ?? [])
+            }
+            activeId={projectId}
+            onActivate={followTab}
+            onClose={closeTab}
+            onReorder={(activeId, overId) => rememberTabs(reorderCabinetTabs(tabsRef.current, activeId, overId))}
+          />
           <div className="sheet">
             <div className="flex flex-wrap items-center gap-2 border-b border-[var(--line)] px-3 py-2">
               <Input
@@ -496,7 +630,6 @@ export function ExplorerPage() {
       <FolderDialog open={folderDialog} onOpenChange={setFolderDialog} drawerId={drawerId} parentId={selected.folders[0] || folderId || tree.data?.root.id || ""} />
       <ShareDialog nodeId={shareId} open={!!shareId} onOpenChange={(open) => !open && setShareId(null)} />
       <PublishDialog fileId={publishId} fileName={publishName} open={!!publishId} onOpenChange={(open) => !open && setPublishId(null)} />
-      <ProjectCreateDialog open={createProject} onOpenChange={setCreateProject} onCreated={(created) => void navigate({ to: "/app/p/$projectId", params: { projectId: created.id } })} />
       <PreviewSheet node={preview} onOpenChange={(open) => !open && setPreview(null)} />
       <AlertDialog open={deleteIds.length > 0} onOpenChange={(open) => !open && setDeleteIds([])}>
         <AlertDialogContent>
@@ -518,9 +651,9 @@ export function ExplorerPage() {
             <CommandItem onSelect={() => { setPalette(false); fileInput.current?.click(); }}>Upload</CommandItem>
             <CommandItem onSelect={() => { setPalette(false); setShareId(folderId || activeDrawer?.rootFolderId || null); }}>Share</CommandItem>
           </CommandGroup>
-          <CommandGroup heading="Projects">
+          <CommandGroup heading="Cabinets">
             {projects.data?.map((item) => (
-              <CommandItem key={item.id} onSelect={() => { setPalette(false); void navigate({ to: "/app/p/$projectId", params: { projectId: item.id } }); }}>{item.name}</CommandItem>
+              <CommandItem key={item.id} onSelect={() => { setPalette(false); openCabinet(item); }}>{item.name}</CommandItem>
             ))}
           </CommandGroup>
           <CommandGroup heading="Drawers">
@@ -546,7 +679,7 @@ function EmptyProjects({ onCreate }: { onCreate: () => void }) {
   return (
     <div className="m-4 rounded-xl border border-[var(--line)] bg-white p-8 shadow-sm">
       <div className="mx-auto max-w-xl space-y-4">
-        <h1 className="text-xl font-semibold">No project yet</h1>
+        <h1 className="text-xl font-semibold">No cabinet yet</h1>
         <p className="text-[var(--ink-soft)]">Create Work, Personal, School, or Sports, or type a name.</p>
         <div className="flex flex-wrap gap-2">
           {(["work", "personal", "school", "sports"] as const).map((kind) => (

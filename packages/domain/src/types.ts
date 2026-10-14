@@ -200,6 +200,10 @@ export interface LocationTab {
   id: string;
   url: string;
   title: string;
+  /** Cabinet id. Older tabs leave this empty and keep the id in `url`. */
+  projectId?: string;
+  /** Selected node id. The `url` query also carries `select`. */
+  select?: string;
 }
 
 export interface Preferences {
