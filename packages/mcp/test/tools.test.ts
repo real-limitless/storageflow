@@ -4,6 +4,7 @@ import { createApp } from "../../../apps/api/src/app.js";
 import { createResolver } from "../../../apps/api/src/adapters.js";
 import type { AppConfig } from "../../../apps/api/src/config.js";
 import { openDatabase } from "../../../apps/api/src/db.js";
+import { createExtractiveAnswerer, createHashEmbedder } from "../../../apps/api/src/embed.js";
 import { JobQueue } from "../../../apps/api/src/jobs.js";
 import { migrate } from "../../../apps/api/src/migrate.js";
 import type { Deps } from "../../../apps/api/src/services/access.js";
@@ -39,6 +40,12 @@ function config(): AppConfig {
     seedName: "Ada",
     tenantSlug: "acme",
     tenantName: "Acme",
+    embeddingUrl: "",
+    embeddingApiKey: "",
+    embeddingModel: "",
+    answerUrl: "",
+    answerApiKey: "",
+    answerModel: "",
   };
 }
 
@@ -63,6 +70,8 @@ async function boot() {
     adapters: createResolver("memory"),
     config: config(),
     jobs: new JobQueue(),
+    embedder: createHashEmbedder(),
+    answerer: createExtractiveAnswerer(),
     now: () => new Date("2026-10-14T12:00:00Z"),
   };
   const app = createApp(deps);
