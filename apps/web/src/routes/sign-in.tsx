@@ -1,10 +1,13 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import type { Me } from "@storageflow/domain";
+import { TeamOnboarding } from "@/components/team-onboarding";
 import { api } from "@/lib/api";
 import { Button, Card, Input, Label } from "@/components/ui";
 
 export function SignInPage() {
   const navigate = useNavigate();
+  const [needsTeam, setNeedsTeam] = useState(false);
   const [mode, setMode] = useState<"password" | "magic" | "create">("password");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -12,32 +15,42 @@ export function SignInPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
+  async function enter(me: Me) {
+    if (me.activeTenant == null) {
+      setNeedsTeam(true);
+      return;
+    }
+    await navigate({ to: "/app" });
+  }
+
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setError("");
     setMessage("");
     try {
       if (mode === "create") {
-        await api("/users", { method: "POST", body: JSON.stringify({ email, password, name }) });
-        await navigate({ to: "/app" });
+        const me = await api<Me>("/users", { method: "POST", body: JSON.stringify({ email, password, name }) });
+        await enter(me);
         return;
       }
       if (mode === "magic") {
         const result = await api<{ sent: boolean; devToken?: string }>("/sessions/magic", { method: "POST", body: JSON.stringify({ email }) });
         if (result.devToken) {
-          await api("/sessions/magic/consume", { method: "POST", body: JSON.stringify({ token: result.devToken }) });
-          await navigate({ to: "/app" });
+          const me = await api<Me>("/sessions/magic/consume", { method: "POST", body: JSON.stringify({ token: result.devToken }) });
+          await enter(me);
           return;
         }
         setMessage("If that email can sign in, a link is on its way.");
         return;
       }
-      await api("/sessions", { method: "POST", body: JSON.stringify({ email, password }) });
-      await navigate({ to: "/app" });
+      const me = await api<Me>("/sessions", { method: "POST", body: JSON.stringify({ email, password }) });
+      await enter(me);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Sign in failed");
     }
   }
+
+  if (needsTeam) return <TeamOnboarding onCreated={() => void navigate({ to: "/app" })} />;
 
   return (
     <main className="grid min-h-full place-items-center bg-[var(--page)] p-6">

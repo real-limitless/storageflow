@@ -619,3 +619,47 @@ test("users, scoped keys, versions, reorder, and audit", async () => {
 
   await db.close();
 });
+
+test("sign-up plus create-tenant yields an owner membership", async () => {
+  const db = await openDatabase("pglite:");
+  await migrate(db);
+  const deps: Deps = {
+    db,
+    adapters: createResolver("memory"),
+    config: config(),
+    jobs: new JobQueue(),
+    now: () => new Date("2026-10-14T12:00:00Z"),
+  };
+  const app = createApp(deps);
+  const jar = new Jar();
+
+  async function call(method: string, path: string, json?: unknown) {
+    const headers = new Headers({ "content-type": "application/json" });
+    const cookie = jar.header();
+    if (cookie) headers.set("cookie", cookie);
+    const response = await app.request(path, {
+      method,
+      headers,
+      body: JSON.stringify(json ?? {}),
+    });
+    jar.absorb(response);
+    return bodyOf(response);
+  }
+
+  const created = await call("POST", "/users", { email: "ada@north.test", name: "Ada", password: "correct-horse" });
+  assert.equal(created.status, 201, JSON.stringify(created.json));
+  assert.equal(created.json.activeTenant, null);
+  const tenant = await call("POST", "/tenants", { name: "North Lab" });
+  assert.equal(tenant.status, 201, JSON.stringify(tenant.json));
+  assert.equal(tenant.json.activeTenant.role, "owner");
+  assert.equal(tenant.json.activeTenant.name, "North Lab");
+  assert.equal(tenant.json.memberships.length, 1);
+  assert.equal(tenant.json.memberships[0].role, "owner");
+  assert.equal(tenant.json.memberships[0].tenantId, tenant.json.activeTenant.id);
+  const rows = await db.query<{ role: string }>("SELECT role FROM memberships WHERE user_id = $1 AND tenant_id = $2", [
+    created.json.user.id,
+    tenant.json.activeTenant.id,
+  ]);
+  assert.equal(rows[0]?.role, "owner");
+  await db.close();
+});
