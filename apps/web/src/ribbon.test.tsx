@@ -43,8 +43,8 @@ function fileNode(id: string, name: string): Node {
     modifiedAt: "2026-03-01T12:00:00.000Z",
     starred: false,
     color: null,
-    incomplete: false,
     sortOrder: 0,
+    incomplete: false,
     cachedAt: "2026-03-01T12:00:00.000Z",
   };
 }
@@ -74,6 +74,7 @@ describe("home ribbon order", () => {
       "guide",
       "help",
       "new-folder",
+      "new-file",
       "upload",
     ]);
   });
@@ -132,7 +133,7 @@ describe("coming soon versus live actions", () => {
     }
     expect(ribbonAction("tools")).toMatchObject({ availability: "soon", issue: 12 });
     expect(comingSoonCopy(ribbonAction("tools"))).toContain("#12");
-    for (const id of ["cabinets", "open", "portal", "preview", "move", "settings", "new-folder", "upload"] as const) {
+    for (const id of ["cabinets", "open", "portal", "preview", "move", "settings", "new-folder", "new-file", "upload"] as const) {
       expect(ribbonAction(id).availability).toBe("live");
     }
   });

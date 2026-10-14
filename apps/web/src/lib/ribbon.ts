@@ -28,6 +28,7 @@ export type RibbonActionId =
   | "guide"
   | "help"
   | "new-folder"
+  | "new-file"
   | "upload"
   | "rename"
   | "delete"
@@ -79,6 +80,7 @@ export const RIBBON_ACTIONS: readonly RibbonAction[] = [
   { id: "guide", label: "Guide", availability: "soon", issue: 31 },
   { id: "help", label: "Help", availability: "soon", issue: 32 },
   { id: "new-folder", label: "New folder", availability: "live", issue: null },
+  { id: "new-file", label: "New file", availability: "live", issue: null },
   { id: "upload", label: "Upload", availability: "live", issue: null },
   { id: "rename", label: "Rename", availability: "live", issue: null },
   { id: "delete", label: "Delete", availability: "live", issue: null },
@@ -153,13 +155,13 @@ export const HOME_GROUPS: readonly (readonly RibbonActionId[])[] = [
   ["namings", "templates", "separators", "cleanup", "actions"],
   ["convert", "combine", "extract"],
   ["settings", "guide", "help"],
-  ["new-folder", "upload"],
+  ["new-folder", "new-file", "upload"],
 ];
 
 export const INBOX_GROUPS: readonly (readonly RibbonActionId[])[] = [["email", "scan"]];
 
 export const MANAGE_GROUPS: readonly (readonly RibbonActionId[])[] = [
-  ["cabinets", "open", "move", "new-folder", "upload"],
+  ["cabinets", "open", "move", "new-folder", "new-file", "upload"],
   ["rename", "delete", "share", "download", "publish"],
   ["portal", "namings", "templates", "separators", "cleanup"],
   ["settings"],
@@ -226,6 +228,7 @@ export function isActionEnabled(id: RibbonActionId, selection: RibbonSelection):
     case "new-folder":
       return selection.writesEnabled && selection.drawerId.length > 0;
     case "upload":
+    case "new-file":
     case "scan":
     case "templates":
     case "cleanup":
@@ -271,6 +274,7 @@ export function disabledReason(id: RibbonActionId, selection: RibbonSelection): 
     case "new-folder":
       return selection.writesEnabled ? "Open a drawer first" : "Writes are paused";
     case "upload":
+    case "new-file":
     case "scan":
     case "templates":
     case "cleanup":

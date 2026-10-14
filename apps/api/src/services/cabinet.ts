@@ -234,6 +234,14 @@ function sortNodes(nodes: Node[], sort: string, direction: string): Node[] {
   });
 }
 
+function hasManualOrder(nodes: Node[]): boolean {
+  return nodes.some((node) => node.sortOrder !== 0);
+}
+
+function compareManualOrder(a: Node, b: Node): number {
+  return a.sortOrder - b.sortOrder || a.name.localeCompare(b.name);
+}
+
 export async function listProjects(deps: Deps, actor: MemberActor): Promise<Project[]> {
   const rows =
     actor.tenantRole === "owner"
@@ -586,12 +594,13 @@ export async function listFolder(
     folders = folders.filter(keep);
     files = files.filter(keep);
   }
-  if (query.sort === "order") {
-    const byOrder = (a: Node, b: Node) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name);
-    folders.sort(byOrder);
-    files.sort(byOrder);
+  const sort = query.sort || "name";
+  const manualFiles = sort === "name" && (query.dir || "asc") !== "desc" && hasManualOrder(files);
+  if (sort === "order" || manualFiles) {
+    if (sort === "order") folders.sort(compareManualOrder);
+    files.sort(compareManualOrder);
   } else {
-    files = sortNodes(files, query.sort || "name", query.dir || "asc");
+    files = sortNodes(files, sort, query.dir || "asc");
   }
   const totalFiles = files.length;
   const offset = Number(query.cursor || 0) || 0;
