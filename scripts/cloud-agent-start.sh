@@ -51,9 +51,17 @@ if ! curl -fsS http://127.0.0.1:8787/health >/dev/null 2>&1 || ! curl -fsS -o /d
   docker compose up -d --build
 fi
 
+# A snapshotted Postgres volume keeps its old password. A fresh checkout
+# generates a new POSTGRES_PASSWORD, and the API then cannot sign in.
+recovered=0
 for _ in $(seq 1 180); do
   if curl -fsS http://127.0.0.1:8787/health >/dev/null 2>&1 && curl -fsS -o /dev/null http://127.0.0.1:5173/; then
     exit 0
+  fi
+  if [ "$recovered" -eq 0 ] && docker compose logs api --tail 80 2>/dev/null | grep -q 'password authentication failed'; then
+    recovered=1
+    docker compose down -v
+    docker compose up -d --build
   fi
   sleep 5
 done
