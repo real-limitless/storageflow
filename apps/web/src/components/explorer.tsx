@@ -21,13 +21,14 @@ import {
   type Project,
   type SearchHit,
 } from "@storageflow/domain";
-import { ChevronRight, File, FileText, Folder, FolderOpen, FolderPlus, Image as ImageIcon, LayoutGrid, List, Pencil, Share2, Star, Table2, Trash2, Upload } from "lucide-react";
+import { ChevronRight, File, FileText, Folder, FolderOpen, Image as ImageIcon, LayoutGrid, List, Star, Table2, Upload } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { toast } from "sonner";
 import { CabinetTabs } from "@/components/cabinet-tabs";
 import { DrawerWizard, FolderDialog, PublishDialog, ShareDialog } from "@/components/dialogs";
 import { AppShell } from "@/components/header";
+import { FileCenterRibbon, LocationBar, StatusCounts } from "@/components/ribbon";
 import { buildLocationUrl, cabinetTabs, closeCabinetTab, neighborAfterClose, openOrRestoreCabinet, parseLocationUrl, projectIdFromUrl, reorderCabinetTabs, upsertCabinetTab } from "@/lib/cabinets";
 import {
   AlertDialog,
@@ -47,17 +48,25 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuTrigger,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
   Input,
+  Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Sheet,
   SheetContent,
   SheetTitle,
 } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
 import { COLOR_CLASS, fileKind, formatBytes, formatWhen } from "@/lib/format";
+import { DETAIL_COLUMN_HEADERS, parentCrumb, type RibbonActionId, type RibbonSelection, type RibbonTab } from "@/lib/ribbon";
 import { validateExplorerSearch, type ExplorerSearch } from "@/lib/search";
 import { uploads, useUploads } from "@/lib/uploads";
 
@@ -95,6 +104,12 @@ export function ExplorerPage() {
   const [publishId, setPublishId] = useState<string | null>(null);
   const [preview, setPreview] = useState<Node | null>(null);
   const [palette, setPalette] = useState(false);
+  const [ribbonTab, setRibbonTab] = useState<RibbonTab>("Home");
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [moveDestination, setMoveDestination] = useState("");
+  const [nameQuery, setNameQuery] = useState("");
+  const [nameHits, setNameHits] = useState<SearchHit[] | null>(null);
+  const [nameSearching, setNameSearching] = useState(false);
   const [createProject, setCreateProject] = useState(false);
   const [deleteIds, setDeleteIds] = useState<string[]>([]);
   const [renameId, setRenameId] = useState<string | null>(null);
@@ -116,11 +131,6 @@ export function ExplorerPage() {
     queryKey: ["listing", drawerId, folderId, search.qf, search.qc, search.sort, search.dir],
     queryFn: () => api<Listing>(`/drawers/${drawerId}/list?${new URLSearchParams({ folderId, q: search.qf, color: search.qc, sort: search.sort, dir: search.dir })}`),
     enabled: !!drawerId && !!folderId,
-  });
-  const hits = useQuery({
-    queryKey: ["search", projectId, ""],
-    queryFn: () => api<SearchHit[]>(`/projects/${projectId}/search?q=`),
-    enabled: false,
   });
   const view = search.view ?? me.data?.preferences.viewMode ?? "grid";
   const zoom = me.data?.preferences.zoom ?? 2;
@@ -476,6 +486,137 @@ export function ExplorerPage() {
     else if (selected.folders[0] && selected.folders[0] !== tree.data?.root.id) void remove(selected.folders);
   }
 
+  const ribbonSelection: RibbonSelection = {
+    projectId,
+    drawerId,
+    folderId,
+    rootFolderId: activeDrawer?.rootFolderId ?? tree.data?.root.id ?? "",
+    writesEnabled: !!writesEnabled,
+    portalSlug,
+    drawerIds: selected.drawers,
+    folderIds: selected.folders,
+    fileIds: selected.files,
+  };
+  const moveDestinations = useMemo(() => {
+    if (!tree.data) return [];
+    const moving = new Set([...selected.files, ...selected.folders]);
+    return [tree.data.root, ...tree.data.folders].filter((node) => !moving.has(node.id)).map((node) => ({ id: node.id, label: node.name }));
+  }, [tree.data, selected.files, selected.folders]);
+  const crumbs = listing.data?.breadcrumb.length
+    ? listing.data.breadcrumb
+    : [
+        ...(project ? [{ id: project.id, name: project.name, kind: "project" as const }] : []),
+        ...(activeDrawer ? [{ id: activeDrawer.id, name: activeDrawer.name, kind: "drawer" as const }] : []),
+      ];
+
+  function openCrumb(crumb: (typeof crumbs)[number]) {
+    if (crumb.kind === "project") {
+      void navigate({ to: "/app/p/$projectId", params: { projectId: crumb.id }, search });
+      return;
+    }
+    if (crumb.kind === "drawer") {
+      const drawer = drawers.data?.find((item) => item.id === crumb.id) ?? activeDrawer;
+      if (drawer) openDrawer(drawer);
+      return;
+    }
+    openFolder(crumb.id);
+  }
+
+  function goUp() {
+    const target = parentCrumb(crumbs, activeDrawer?.rootFolderId ?? "");
+    if (!target) return;
+    if (target.kind === "project") {
+      void navigate({ to: "/app/p/$projectId", params: { projectId }, search });
+      return;
+    }
+    openFolder(target.id);
+  }
+
+  function beginMove() {
+    setMoveDestination(moveDestinations[0]?.id ?? "");
+    setMoveOpen(true);
+  }
+
+  async function confirmMove() {
+    const nodeIds = [...selected.files, ...selected.folders.filter((id) => id !== tree.data?.root.id)];
+    if (!moveDestination || nodeIds.length === 0) return;
+    try {
+      await api("/nodes/move", { method: "POST", body: JSON.stringify({ nodeIds, destinationFolderId: moveDestination }) });
+      setMoveOpen(false);
+      toast.success("Moved");
+      await queryClient.invalidateQueries({ queryKey: ["listing"] });
+      await queryClient.invalidateQueries({ queryKey: ["tree"] });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Move failed");
+    }
+  }
+
+  async function runNameSearch() {
+    if (!projectId) return;
+    setNameSearching(true);
+    try {
+      const found = await api<SearchHit[]>(`/projects/${projectId}/search?q=${encodeURIComponent(nameQuery)}`);
+      setNameHits(found);
+    } catch (error) {
+      setNameHits([]);
+      toast.error(error instanceof Error ? error.message : "Search failed");
+    } finally {
+      setNameSearching(false);
+    }
+  }
+
+  function openHit(hit: SearchHit) {
+    const parent = hit.node.kind === "folder" ? hit.node.id : hit.parentId;
+    if (!parent) return;
+    void navigate({
+      to: "/app/p/$projectId/d/$drawerId/f/$folderId",
+      params: { projectId, drawerId: hit.drawerId, folderId: parent },
+      search: { ...search, select: hit.node.id },
+    });
+  }
+
+  function runRibbon(id: RibbonActionId) {
+    if (id === "cabinets") {
+      document.querySelector<HTMLButtonElement>('header [role="combobox"]')?.click();
+      return;
+    }
+    if (id === "open") {
+      if (selected.files.length === 1) {
+        const file = files.find((item) => item.id === selected.files[0]);
+        if (file) setPreview(file);
+        return;
+      }
+      if (selected.folders.length === 1) {
+        openFolder(selected.folders[0]);
+        return;
+      }
+      const drawer = visibleDrawers.find((item) => item.id === selected.drawers[0]);
+      if (drawer) openDrawer(drawer);
+      return;
+    }
+    if (id === "portal" && portalSlug) {
+      window.location.assign(`/portal/${portalSlug}`);
+      return;
+    }
+    if (id === "preview") {
+      const file = files.find((item) => item.id === selected.files[0]);
+      if (file) setPreview(file);
+      return;
+    }
+    if (id === "move") beginMove();
+    if (id === "settings" && projectId) {
+      void navigate({ to: "/app/p/$projectId/settings", params: { projectId } });
+      return;
+    }
+    if (id === "new-folder") setFolderDialog(true);
+    if (id === "upload") fileInput.current?.click();
+    if (id === "rename") beginRename();
+    if (id === "delete") beginDelete();
+    if (id === "share") beginShare();
+    if (id === "download") selected.files.forEach((nodeId) => window.open(`/api/nodes/${nodeId}/content?download=1`));
+    if (id === "publish" && selected.files[0]) setPublishId(selected.files[0]);
+  }
+
   const drawerPane = (
     <DrawerPane
       drawers={visibleDrawers}
@@ -550,39 +691,25 @@ export function ExplorerPage() {
             onReorder={(activeId, overId) => rememberTabs(reorderCabinetTabs(tabsRef.current, activeId, overId))}
           />
           <div className="sheet">
-            <div className="flex flex-wrap items-center gap-2 border-b border-[var(--line)] px-3 py-2">
-              <Input
-                aria-label="Search this project"
-                placeholder="Search files and folders"
-                className="max-w-md"
-                onKeyDown={async (event) => {
-                  if (event.key !== "Enter" || !projectId) return;
-                  const found = await api<SearchHit[]>(`/projects/${projectId}/search?q=${encodeURIComponent(event.currentTarget.value)}`);
-                  const hit = found[0];
-                  if (!hit) {
-                    toast("No names match");
-                    return;
-                  }
-                  const parent = hit.node.kind === "folder" ? hit.node.id : hit.parentId;
-                  if (parent) void navigate({ to: "/app/p/$projectId/d/$drawerId/f/$folderId", params: { projectId, drawerId: hit.drawerId, folderId: parent }, search: { ...search, select: hit.node.id } });
-                }}
-              />
-              <div className="ml-auto flex flex-wrap items-center gap-1.5">
-                <Button size="sm" variant="outline" disabled={!writesEnabled || !drawerId} onClick={() => setFolderDialog(true)}><FolderPlus className="h-4 w-4" /> New folder</Button>
-                <Button size="sm" disabled={!writesEnabled || !folderId} onClick={() => fileInput.current?.click()}><Upload className="h-4 w-4" /> Upload</Button>
-                <Button size="sm" variant="outline" disabled={!renameTarget?.parentId} onClick={beginRename}><Pencil className="h-4 w-4" /> Rename</Button>
-                <Button size="sm" variant="outline" disabled={!selected.files.length && !selected.folders.some((id) => id !== tree.data?.root.id)} onClick={beginDelete}><Trash2 className="h-4 w-4" /> Delete</Button>
-                <Button size="sm" variant="outline" disabled={!folderId && !activeDrawer} onClick={beginShare}><Share2 className="h-4 w-4" /> Share</Button>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild><Button size="sm" variant="ghost">More</Button></DropdownMenuTrigger>
-                  <DropdownMenuContent>
-                    <DropdownMenuItem onSelect={() => setPalette(true)}>Command palette</DropdownMenuItem>
-                    <DropdownMenuItem disabled={!selected.files[0]} onSelect={() => selected.files[0] && setPublishId(selected.files[0])}>Publish</DropdownMenuItem>
-                    <DropdownMenuItem disabled={!selected.files.length} onSelect={() => selected.files.forEach((id) => window.open(`/api/nodes/${id}/content?download=1`))}>Download</DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            </div>
+            <FileCenterRibbon
+              tab={ribbonTab}
+              onTabChange={setRibbonTab}
+              selection={ribbonSelection}
+              onAction={runRibbon}
+              searchValue={nameQuery}
+              onSearchValue={setNameQuery}
+              onSearch={() => void runNameSearch()}
+              hits={nameHits}
+              searching={nameSearching}
+              onOpenHit={openHit}
+            />
+            <LocationBar
+              crumbs={crumbs}
+              rootFolderId={activeDrawer?.rootFolderId ?? ""}
+              backendPath={listing.data?.backendPath ?? ""}
+              onOpen={openCrumb}
+              onUp={goUp}
+            />
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(event) => void onDragEnd(event)}>
               {narrow ? (
                 <div className="flex min-h-0 flex-1 flex-col">
@@ -613,14 +740,12 @@ export function ExplorerPage() {
                 </PanelGroup>
               )}
             </DndContext>
-            <footer className="flex h-10 shrink-0 items-center gap-2 border-t border-[var(--line)] px-4 text-sm text-[var(--ink-soft)]">
-              {listing.data?.breadcrumb.map((segment, index) => (
-                <span key={segment.id} className="flex items-center gap-2">
-                  {index > 0 && <span>/</span>}
-                  <button className="text-[var(--ink)]" onClick={() => segment.kind === "folder" && openFolder(segment.id)}>{segment.name}</button>
-                </span>
-              ))}
-              {listing.data && <span className="ml-auto truncate">{listing.data.backendPath} · {listing.data.totalFiles} items</span>}
+            <footer className="flex h-10 shrink-0 items-center border-t border-[var(--line)] px-4">
+              <StatusCounts
+                selected={selected.drawers.length + selected.folders.length + selected.files.length}
+                folders={listing.data ? listing.data.folders.length : (tree.data?.folders.length ?? 0)}
+                files={listing.data?.totalFiles ?? 0}
+              />
             </footer>
           </div>
         </>
@@ -631,6 +756,35 @@ export function ExplorerPage() {
       <ShareDialog nodeId={shareId} open={!!shareId} onOpenChange={(open) => !open && setShareId(null)} />
       <PublishDialog fileId={publishId} fileName={publishName} open={!!publishId} onOpenChange={(open) => !open && setPublishId(null)} />
       <PreviewSheet node={preview} onOpenChange={(open) => !open && setPreview(null)} />
+      <Dialog open={moveOpen} onOpenChange={setMoveOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Move</DialogTitle>
+            <DialogDescription>Choose a folder in this drawer. The move is saved with the cabinet.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1">
+            <Label htmlFor="move-destination">Destination</Label>
+            {moveDestinations.length === 0 ? (
+              <p className="text-sm text-[var(--ink-soft)]">Open a drawer with a folder before moving.</p>
+            ) : (
+              <Select value={moveDestination} onValueChange={setMoveDestination}>
+                <SelectTrigger id="move-destination" aria-label="Destination folder">
+                  <SelectValue placeholder="Choose a folder" />
+                </SelectTrigger>
+                <SelectContent>
+                  {moveDestinations.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>{item.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setMoveOpen(false)}>Cancel</Button>
+            <Button disabled={!moveDestination} onClick={() => void confirmMove()}>Move</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <AlertDialog open={deleteIds.length > 0} onOpenChange={(open) => !open && setDeleteIds([])}>
         <AlertDialogContent>
           <AlertDialogTitle>Delete {deleteIds.length} items?</AlertDialogTitle>
@@ -663,7 +817,6 @@ export function ExplorerPage() {
           </CommandGroup>
         </CommandList>
       </CommandDialog>
-      <span className="hidden">{hits.status}</span>
     </AppShell>
   );
 }
@@ -917,7 +1070,7 @@ function FileCard({ file, selected, onClick, onOpen }: { file: Node; selected: b
 const columnHelper = createColumnHelper<Node>();
 const columns = [
   columnHelper.accessor("name", {
-    header: "Name",
+    header: DETAIL_COLUMN_HEADERS[0],
     cell: (info) => (
       <span className="flex items-center gap-2">
         <FileGlyph name={info.getValue()} />
@@ -925,14 +1078,14 @@ const columns = [
       </span>
     ),
   }),
-  columnHelper.accessor("size", { header: "Size", cell: (info) => formatBytes(info.getValue()) }),
-  columnHelper.accessor((row) => typeLabel(row.name), { id: "type", header: "Type" }),
-  columnHelper.accessor("modifiedAt", { header: "Modified", cell: (info) => formatWhen(info.getValue()) }),
-  columnHelper.accessor("color", { header: "Color", cell: (info) => info.getValue() ?? "none" }),
-  columnHelper.accessor("starred", { header: "Star", cell: (info) => (info.getValue() ? "Yes" : "") }),
+  columnHelper.accessor("size", { header: DETAIL_COLUMN_HEADERS[1], cell: (info) => formatBytes(info.getValue()) }),
+  columnHelper.accessor((row) => typeLabel(row.name), { id: "type", header: DETAIL_COLUMN_HEADERS[2] }),
+  columnHelper.accessor("modifiedAt", { header: DETAIL_COLUMN_HEADERS[3], cell: (info) => formatWhen(info.getValue()) }),
+  columnHelper.accessor("color", { header: DETAIL_COLUMN_HEADERS[4], cell: (info) => info.getValue() ?? "none" }),
+  columnHelper.accessor("starred", { header: DETAIL_COLUMN_HEADERS[5], cell: (info) => (info.getValue() ? "Yes" : "") }),
 ];
 
-function DetailsTable({ files, selected, onChoose, onSort }: { files: Node[]; selected: string[]; onChoose: (id: string, ids: string[], event: MouseEvent) => void; onSort: (sort: string) => void }) {
+export function DetailsTable({ files, selected, onChoose, onSort }: { files: Node[]; selected: string[]; onChoose: (id: string, ids: string[], event: MouseEvent) => void; onSort: (sort: string) => void }) {
   const table = useReactTable({ data: files, columns, getCoreRowModel: getCoreRowModel() });
   const ids = files.map((file) => file.id);
   return (
