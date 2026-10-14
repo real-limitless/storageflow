@@ -19,6 +19,8 @@ export interface Deps {
   embedder: Embedder;
   answerer: Answerer;
   now: () => Date;
+  /** Test hook. Production waits with setTimeout. */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 export interface MemberActor {

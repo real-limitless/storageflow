@@ -8,6 +8,17 @@ import { bindingFromRow, loadDrawerRow, loadNodeRow, type Deps, type MemberActor
 const MIN_SCORE = 0.35;
 const CHUNK_SIZE = 800;
 const MAX_CHUNKS = 8;
+/** Attempts after the first refused connection, then a backfill probe takes over. */
+export const EMBEDDING_RETRY_DELAYS_MS = [250, 1000, 4000];
+/** Probe cadence once retries are exhausted. The last delay repeats until embeddings work. */
+export const EMBEDDING_BACKFILL_DELAYS_MS = [2000, 5000, 15000, 30000];
+
+interface RecoveryState {
+  probeScheduled: boolean;
+  probeAttempt: number;
+}
+
+const recoveryByDeps = new WeakMap<Deps, RecoveryState>();
 
 interface SearchAccess {
   kind: "project" | "grants" | "none";
@@ -123,10 +134,122 @@ export async function answerQuestion(deps: Deps, actor: MemberActor, projectId: 
   return { answer, hits };
 }
 
-export async function indexUploadedFile(
-  deps: Deps,
-  input: { tenantId: string; projectId: string; drawerId: string; nodeId: string },
-): Promise<void> {
+interface IndexTarget {
+  tenantId: string;
+  projectId: string;
+  drawerId: string;
+  nodeId: string;
+}
+
+export async function indexUploadedFile(deps: Deps, input: IndexTarget): Promise<void> {
+  await indexRecovering(deps, input, 0);
+}
+
+async function indexRecovering(deps: Deps, input: IndexTarget, attempt: number): Promise<void> {
+  try {
+    await indexOnce(deps, input);
+    await backfillUnindexed(deps);
+  } catch (error) {
+    if (!isEmbedderUnavailable(error)) throw error;
+    const delay = EMBEDDING_RETRY_DELAYS_MS[attempt];
+    if (delay == null) {
+      console.error("Embedding endpoint is down; unindexed files will be backfilled when it recovers");
+      scheduleBackfill(deps);
+      return;
+    }
+    void sleep(deps, delay).then(() => {
+      deps.jobs.enqueue(() => indexRecovering(deps, input, attempt + 1));
+    });
+  }
+}
+
+/** Index file nodes that never received an embedding, once the endpoint answers. */
+export async function backfillUnindexed(deps: Deps): Promise<void> {
+  const rows = await deps.db.query<Row>(
+    `SELECT n.id AS node_id, n.tenant_id, n.drawer_id, d.project_id
+     FROM nodes n
+     JOIN drawers d ON d.id = n.drawer_id
+     WHERE n.kind = 'file' AND n.parent_id IS NOT NULL AND n.incomplete = false
+       AND NOT EXISTS (SELECT 1 FROM embeddings e WHERE e.node_id = n.id)
+     ORDER BY n.cached_at`,
+  );
+  for (const row of rows) {
+    const input: IndexTarget = {
+      tenantId: String(row.tenant_id),
+      projectId: String(row.project_id),
+      drawerId: String(row.drawer_id),
+      nodeId: String(row.node_id),
+    };
+    try {
+      await indexOnce(deps, input);
+    } catch (error) {
+      if (isEmbedderUnavailable(error)) {
+        scheduleBackfill(deps);
+        return;
+      }
+      console.error(error);
+    }
+  }
+}
+
+/** Probe for unindexed files. A down endpoint schedules the next probe with backoff. */
+export function watchUnindexedEmbeddings(deps: Deps): void {
+  deps.jobs.enqueue(() => probeAndBackfill(deps));
+}
+
+function scheduleBackfill(deps: Deps): void {
+  const state = recoveryState(deps);
+  if (state.probeScheduled) return;
+  state.probeScheduled = true;
+  const delay = EMBEDDING_BACKFILL_DELAYS_MS[Math.min(state.probeAttempt, EMBEDDING_BACKFILL_DELAYS_MS.length - 1)];
+  void sleep(deps, delay).then(() => {
+    state.probeScheduled = false;
+    deps.jobs.enqueue(() => probeAndBackfill(deps));
+  });
+}
+
+async function probeAndBackfill(deps: Deps): Promise<void> {
+  const state = recoveryState(deps);
+  try {
+    await deps.embedder.embed(["."]);
+  } catch (error) {
+    if (!isEmbedderUnavailable(error)) throw error;
+    state.probeAttempt += 1;
+    scheduleBackfill(deps);
+    return;
+  }
+  state.probeAttempt = 0;
+  await backfillUnindexed(deps);
+}
+
+function recoveryState(deps: Deps): RecoveryState {
+  const existing = recoveryByDeps.get(deps);
+  if (existing) return existing;
+  const created = { probeScheduled: false, probeAttempt: 0 };
+  recoveryByDeps.set(deps, created);
+  return created;
+}
+
+function sleep(deps: Deps, ms: number): Promise<void> {
+  if (deps.sleep) return deps.sleep(ms);
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export function isEmbedderUnavailable(error: unknown): boolean {
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (current && typeof current === "object" && !seen.has(current)) {
+    seen.add(current);
+    const record = current as { code?: unknown; message?: unknown; cause?: unknown; errors?: unknown };
+    if (record.code === "ECONNREFUSED") return true;
+    if (typeof record.message === "string" && record.message.includes("ECONNREFUSED")) return true;
+    if (Array.isArray(record.errors) && record.errors.some((item) => isEmbedderUnavailable(item))) return true;
+    current = record.cause;
+  }
+  return false;
+}
+
+async function indexOnce(deps: Deps, input: IndexTarget): Promise<void> {
   const node = await loadNodeRow(deps, input.tenantId, input.nodeId);
   if (String(node.kind) !== "file") return;
   const drawer = await loadDrawerRow(deps, input.tenantId, input.drawerId);

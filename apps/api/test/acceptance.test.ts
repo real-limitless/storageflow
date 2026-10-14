@@ -9,6 +9,7 @@ import type { AppConfig } from "../src/config.js";
 import { decryptString } from "../src/crypto.js";
 import { openDatabase } from "../src/db.js";
 import { createExtractiveAnswerer, createHashEmbedder, EMBEDDING_DIMENSIONS, type Embedder } from "../src/embed.js";
+import { EMBEDDING_BACKFILL_DELAYS_MS, EMBEDDING_RETRY_DELAYS_MS } from "../src/services/semantic.js";
 import { JobQueue } from "../src/jobs.js";
 import { migrate } from "../src/migrate.js";
 import type { Deps } from "../src/services/access.js";
@@ -1024,6 +1025,117 @@ test("semantic search indexes uploads, answers from them, and hides nodes outsid
 
   const ownerRecipe = await call("GET", `/projects/${project.json.id}/search/semantic?q=${encodeURIComponent("banana bread")}`);
   assert.equal(ownerRecipe.json.some((hit: { node: { id: string } }) => hit.node.id === recipe.id), true);
+
+  await db.close();
+});
+
+test("a refused embedding connection retries, then backfills the file once embeddings recover", async () => {
+  const db = await openDatabase("pglite:");
+  await migrate(db);
+  const jobs = new JobQueue();
+  const ready = { up: false };
+  const inner = fakeEmbedder();
+  const waits: Array<{ ms: number; resolve: () => void }> = [];
+  const deps: Deps = {
+    db,
+    adapters: createResolver("memory"),
+    config: config(),
+    jobs,
+    embedder: {
+      dimensions: EMBEDDING_DIMENSIONS,
+      async embed(texts) {
+        if (!ready.up) {
+          const cause = new Error("connect ECONNREFUSED 127.0.0.1:9") as NodeJS.ErrnoException;
+          cause.code = "ECONNREFUSED";
+          const error = new TypeError("fetch failed");
+          error.cause = cause;
+          throw error;
+        }
+        return inner.embed(texts);
+      },
+    },
+    answerer: createExtractiveAnswerer(),
+    now: () => new Date("2026-10-14T15:00:00Z"),
+    sleep: (ms) => new Promise((resolve) => waits.push({ ms, resolve })),
+  };
+  const app = createApp(deps);
+  const jar = new Jar();
+
+  async function call(method: string, path: string, options?: { json?: unknown; raw?: Uint8Array }) {
+    const headers = new Headers();
+    const cookie = jar.header();
+    if (cookie) headers.set("cookie", cookie);
+    let body: Uint8Array | string | undefined;
+    if (options?.raw) {
+      body = options.raw;
+      headers.set("content-length", String(options.raw.byteLength));
+    } else if (options?.json !== undefined) {
+      body = JSON.stringify(options.json);
+      headers.set("content-type", "application/json");
+    }
+    const response = await app.request(path, { method, headers, body: body as BodyInit | undefined });
+    jar.absorb(response);
+    return bodyOf(response);
+  }
+
+  async function releaseNext() {
+    const item = waits.shift();
+    assert.ok(item, "expected a scheduled embedding retry");
+    item.resolve();
+    await Promise.resolve();
+    await jobs.whenIdle();
+    return item.ms;
+  }
+
+  async function indexedNames() {
+    const rows = await db.query<{ name: string }>(
+      `SELECT n.name FROM embeddings e JOIN nodes n ON n.id = e.node_id ORDER BY n.name`,
+    );
+    return rows.map((row) => row.name);
+  }
+
+  const created = await call("POST", "/users", { json: { email: "ada@acme.test", name: "Ada", password: "correct-horse" } });
+  assert.equal(created.status, 201, JSON.stringify(created.json));
+  await call("POST", "/tenants", { json: { name: "Acme", slug: "acme" } });
+  const project = await call("POST", "/projects", { json: { name: "Work", kind: "work" } });
+  const drawer = await call("POST", `/projects/${project.json.id}/drawers`, { json: { name: "Client files", mode: "hosted" } });
+  const bytes = new TextEncoder().encode("The acme invoice total is 4200 dollars");
+  const started = await call("POST", `/drawers/${drawer.json.id}/uploads`, {
+    json: { folderId: drawer.json.rootFolderId, name: "q3-notes.txt", size: bytes.byteLength, contentType: "text/plain" },
+  });
+  assert.equal(started.status, 201, JSON.stringify(started.json));
+  const put = await call("PUT", `/uploads/${started.json.uploadId}/body`, { raw: bytes });
+  assert.equal(put.status, 204, JSON.stringify(put.json));
+  const done = await call("POST", `/uploads/${started.json.uploadId}/complete`, { json: {} });
+  assert.equal(done.status, 200, JSON.stringify(done.json));
+  await jobs.whenIdle();
+
+  assert.deepEqual(await indexedNames(), []);
+  assert.equal(waits.length, 1);
+  assert.equal(waits[0]?.ms, EMBEDDING_RETRY_DELAYS_MS[0]);
+  for (const delay of EMBEDDING_RETRY_DELAYS_MS) {
+    assert.equal(waits[0]?.ms, delay);
+    assert.equal(await releaseNext(), delay);
+    assert.deepEqual(await indexedNames(), []);
+  }
+  assert.equal(waits.length, 1);
+  assert.equal(waits[0]?.ms, EMBEDDING_BACKFILL_DELAYS_MS[0]);
+
+  ready.up = true;
+  const missed = await call("GET", `/projects/${project.json.id}/search/semantic?q=${encodeURIComponent("unpaid bill")}`);
+  assert.equal(missed.status, 200, JSON.stringify(missed.json));
+  assert.equal(missed.json.length, 0);
+  assert.deepEqual(await indexedNames(), []);
+
+  assert.equal(await releaseNext(), EMBEDDING_BACKFILL_DELAYS_MS[0]);
+  assert.deepEqual(await indexedNames(), ["q3-notes.txt"]);
+  assert.equal(waits.length, 0);
+
+  const semantic = await call("GET", `/projects/${project.json.id}/search/semantic?q=${encodeURIComponent("unpaid bill")}`);
+  assert.equal(semantic.status, 200, JSON.stringify(semantic.json));
+  assert.equal(semantic.json.length, 1);
+  assert.equal(semantic.json[0].node.name, "q3-notes.txt");
+  assert.match(semantic.json[0].snippet, /4200/);
 
   await db.close();
 });

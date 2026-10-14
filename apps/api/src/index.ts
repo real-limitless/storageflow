@@ -7,6 +7,7 @@ import { createExtractiveAnswerer, createHashEmbedder, createHttpAnswerer, creat
 import { JobQueue } from "./jobs.js";
 import { migrate } from "./migrate.js";
 import { seedOwner } from "./services/account.js";
+import { watchUnindexedEmbeddings } from "./services/semantic.js";
 
 const config = loadConfig();
 if (!config.databaseUrl) {
@@ -30,6 +31,7 @@ const deps = {
   now: () => new Date(),
 };
 await seedOwner(deps);
+watchUnindexedEmbeddings(deps);
 const app = createApp(deps);
 const port = Number(process.env.PORT ?? 8787);
 serve({ fetch: app.fetch, port }, () => {
