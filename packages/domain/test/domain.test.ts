@@ -9,6 +9,8 @@ import {
   DEFAULT_TRANSFER_SETTINGS,
   grantAllowsVerb,
   isDescendantKey,
+  normalizeScopes,
+  scopeAllows,
   isDropFolder,
   isInsidePrefix,
   joinKey,
@@ -66,6 +68,14 @@ test("grants cover descendants and stop at siblings", () => {
   assert.equal(grantAllowsVerb({ ...grant, expiresAt: "2026-10-13T11:00:00Z" }, "list", now), false);
   assert.equal(isDropFolder(["upload"]), true);
   assert.equal(isDropFolder(["upload", "list"]), false);
+});
+
+test("api key scopes are grant verbs", () => {
+  assert.deepEqual(normalizeScopes(["list", "download", "list"]), ["list", "download"]);
+  assert.equal(normalizeScopes(["admin"]), null);
+  assert.equal(normalizeScopes([]), null);
+  assert.equal(scopeAllows(["list"], "download"), false);
+  assert.equal(scopeAllows(["list"], "list"), true);
 });
 
 test("free and paid ticket windows come from plan limits", () => {

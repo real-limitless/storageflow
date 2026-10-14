@@ -39,6 +39,7 @@ import {
   type Deps,
   type MemberActor,
 } from "./access.js";
+import { isVersionListingName, snapshotFileVersion } from "./versions.js";
 
 const PART_SIZE = 8 * 1024 * 1024;
 
@@ -506,7 +507,7 @@ export async function deleteDrawer(deps: Deps, actor: MemberActor, drawerId: str
 
 async function cachedChildren(deps: Deps, drawerId: string, folderId: string, kind: "file" | "folder"): Promise<Node[]> {
   const rows = await deps.db.query<Row>(
-    `SELECT * FROM nodes WHERE drawer_id = $1 AND parent_id = $2 AND kind = $3 ORDER BY name`,
+    `SELECT * FROM nodes WHERE drawer_id = $1 AND parent_id = $2 AND kind = $3 ORDER BY sort_order, name`,
     [drawerId, folderId, kind],
   );
   return rows.map(mapNode);
@@ -538,6 +539,7 @@ export async function listFolder(
     const seen = new Set<string>();
     for (const entry of entries) {
       const key = entry.kind === "prefix" ? (entry.key.endsWith("/") ? entry.key : `${entry.key}/`) : entry.key;
+      if (isVersionListingName(entry.name) || key.includes("/.sf-versions/")) continue;
       seen.add(key);
       await upsertNode(deps, {
         tenantId,
@@ -584,7 +586,13 @@ export async function listFolder(
     folders = folders.filter(keep);
     files = files.filter(keep);
   }
-  files = sortNodes(files, query.sort || "name", query.dir || "asc");
+  if (query.sort === "order") {
+    const byOrder = (a: Node, b: Node) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name);
+    folders.sort(byOrder);
+    files.sort(byOrder);
+  } else {
+    files = sortNodes(files, query.sort || "name", query.dir || "asc");
+  }
   const totalFiles = files.length;
   const offset = Number(query.cursor || 0) || 0;
   const limit = Math.min(Math.max(query.limit || 200, 1), 200);
@@ -694,6 +702,27 @@ export async function patchNode(deps: Deps, actor: Actor, nodeId: string, body: 
     ]);
   }
   return mapNode(await loadNodeRow(deps, actor.tenantId, nodeId));
+}
+
+export async function reorderNodes(deps: Deps, actor: Actor, body: Record<string, unknown>): Promise<Node[]> {
+  const parentId = String(body.parentId ?? "");
+  const ids = Array.isArray(body.ids) ? [...new Set(body.ids.map(String))] : [];
+  if (!parentId || ids.length === 0) throw new HttpError(400, "invalid", "parentId and ids are required");
+  const parent = await loadNodeRow(deps, actor.tenantId, parentId);
+  if (String(parent.kind) !== "folder") throw new HttpError(400, "invalid", "Choose a folder");
+  await assertVerb(deps, actor, parent, "upload");
+  for (const id of ids) {
+    const child = await loadNodeRow(deps, actor.tenantId, id);
+    if (String(child.parent_id ?? "") !== parentId || String(child.drawer_id) !== String(parent.drawer_id)) {
+      throw new HttpError(400, "invalid", "Reorder items in one folder");
+    }
+  }
+  for (let index = 0; index < ids.length; index += 1) {
+    await deps.db.query(`UPDATE nodes SET sort_order = $2 WHERE id = $1 AND tenant_id = $3`, [ids[index], index, actor.tenantId]);
+  }
+  const rows = await deps.db.query<Row>(`SELECT * FROM nodes WHERE parent_id = $1 AND tenant_id = $2`, [parentId, actor.tenantId]);
+  const byId = new Map(rows.map((row) => [String(row.id), row]));
+  return ids.map((id) => mapNode(byId.get(id) as Row));
 }
 
 async function sameDrawerDestination(deps: Deps, actor: Actor, folderId: string, drawerId: string): Promise<Row> {
@@ -923,6 +952,23 @@ export async function deleteNodes(deps: Deps, actor: Actor, body: Record<string,
 async function removeNode(deps: Deps, node: Row): Promise<void> {
   const drawer = await loadDrawerRow(deps, String(node.tenant_id), String(node.drawer_id));
   const adapter = await openAdapter(deps, drawer, { requireOk: true });
+  const versionRows =
+    String(node.kind) === "folder"
+      ? await deps.db.query<Row>(
+          `SELECT fv.storage_key
+           FROM file_versions fv
+           JOIN nodes n ON n.id = fv.node_id
+           WHERE n.drawer_id = $1 AND (n.id = $2 OR n.backend_key LIKE $3 ESCAPE '\\')`,
+          [String(node.drawer_id), String(node.id), likePrefix(String(node.backend_key))],
+        )
+      : await deps.db.query<Row>(`SELECT storage_key FROM file_versions WHERE node_id = $1`, [String(node.id)]);
+  for (const version of versionRows) {
+    try {
+      await adapter.remove(String(version.storage_key), false);
+    } catch {
+      // Metadata removal still proceeds.
+    }
+  }
   await adapter.remove(String(node.backend_key), true);
   if (String(node.kind) === "folder") {
     await deps.db.query(`DELETE FROM nodes WHERE drawer_id = $1 AND (id = $2 OR backend_key LIKE $3 ESCAPE '\\')`, [
@@ -1043,6 +1089,8 @@ async function openUpload(deps: Deps, uploadId: string, actor: Actor): Promise<R
 
 export async function writeUpload(deps: Deps, actor: Actor, uploadId: string, body: ReadableStream<Uint8Array>, size: number): Promise<void> {
   const session = await openUpload(deps, uploadId, actor);
+  const folder = await loadNodeRow(deps, actor.tenantId, String(session.folder_id));
+  await assertVerb(deps, actor, folder, "upload");
   const drawer = await loadDrawerRow(deps, actor.tenantId, String(session.drawer_id));
   const adapter = await openAdapter(deps, drawer, { requireOk: true });
   await adapter.write(String(session.backend_key), body, size);
@@ -1058,6 +1106,8 @@ export async function completeUpload(deps: Deps, actor: Actor, uploadId: string,
     await adapter.completeMultipart(String(session.backend_key), String(session.multipart_upload_id), parts);
   }
   const stat = await adapter.stat(String(session.backend_key));
+  const folder = await loadNodeRow(deps, actor.tenantId, String(session.folder_id));
+  await assertVerb(deps, actor, folder, "upload");
   const node = await upsertNode(deps, {
     tenantId: actor.tenantId,
     drawerId: String(session.drawer_id),
@@ -1070,6 +1120,7 @@ export async function completeUpload(deps: Deps, actor: Actor, uploadId: string,
     modifiedAt: stat.modifiedAt ?? deps.now().toISOString(),
     incomplete: false,
   });
+  await snapshotFileVersion(deps, actor, adapter, String(drawer.prefix), node);
   await deps.db.query(`UPDATE upload_sessions SET status = 'complete' WHERE id = $1`, [uploadId]);
   await recordActivity(deps, {
     tenantId: actor.tenantId,

@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import type { GrantVerb, MemberRole, TransferPlan } from "@storageflow/domain";
-import { verbsForNode, type GrantCheck } from "@storageflow/domain";
+import { scopeAllows, verbsForNode, type GrantCheck } from "@storageflow/domain";
 import type { ObjectBinding } from "@storageflow/storage";
 import type { AppConfig } from "../config.js";
 import { decryptString } from "../crypto.js";
@@ -26,6 +26,8 @@ export interface MemberActor {
   tenantId: string;
   tenantRole: MemberRole;
   transferPlan: TransferPlan;
+  /** Set for a scoped API key. A session cookie leaves this unset. */
+  scopes?: readonly GrantVerb[];
 }
 
 export interface GuestActor {
@@ -38,6 +40,36 @@ export interface GuestActor {
 }
 
 export type Actor = MemberActor | GuestActor;
+
+// The tenant is the team. Drawers belong to a cabinet (projects row) inside that
+// team. Drawer and node lookups below filter on tenant_id.
+
+export async function recordAudit(
+  deps: Deps,
+  input: {
+    tenantId: string;
+    actorUserId?: string | null;
+    action: string;
+    targetType?: string | null;
+    targetId?: string | null;
+    detail?: Record<string, unknown>;
+  },
+): Promise<void> {
+  await deps.db.query(
+    `INSERT INTO audit_log (id, tenant_id, actor_user_id, action, target_type, target_id, detail, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)`,
+    [
+      crypto.randomUUID(),
+      input.tenantId,
+      input.actorUserId ?? null,
+      input.action,
+      input.targetType ?? null,
+      input.targetId ?? null,
+      JSON.stringify(input.detail ?? {}),
+      deps.now().toISOString(),
+    ],
+  );
+}
 
 export async function recordActivity(
   deps: Deps,
@@ -143,6 +175,9 @@ export async function guestGrants(deps: Deps, guest: GuestActor): Promise<Array<
 
 export async function assertVerb(deps: Deps, actor: Actor, node: Row, verb: GrantVerb): Promise<void> {
   if (actor.kind === "member") {
+    if (actor.scopes && !scopeAllows(actor.scopes, verb)) {
+      throw new HttpError(403, "forbidden", "This key does not allow that");
+    }
     const drawer = await loadDrawerRow(deps, actor.tenantId, String(node.drawer_id));
     await requireProject(deps, actor, String(drawer.project_id));
     return;

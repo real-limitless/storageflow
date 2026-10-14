@@ -1,4 +1,4 @@
-import type { ActivityEvent, Drawer, GrantVerb, JobSummary, Node, Preferences, Project, ProjectMember, TransferSettings } from "@storageflow/domain";
+import type { ActivityEvent, AuditEvent, Drawer, FileVersionView, GrantVerb, JobSummary, Node, Preferences, Project, ProjectMember, TeamUser, TransferSettings, UserKind } from "@storageflow/domain";
 import { asBool, asIso, asNumber, jsonField } from "./http.js";
 
 export type Row = Record<string, unknown>;
@@ -31,6 +31,7 @@ export function mapNode(row: Row): Node {
     modifiedAt: asIso(row.modified_at),
     starred: asBool(row.starred),
     color: (row.color as Node["color"]) ?? null,
+    sortOrder: asNumber(row.sort_order) ?? 0,
     incomplete: asBool(row.incomplete),
     cachedAt: asIso(row.cached_at) ?? new Date(0).toISOString(),
   };
@@ -139,6 +140,43 @@ export function mapPreferences(row: Row | undefined): Preferences {
     locationTabs: jsonField(row.location_tabs, []),
     favoritesOnly: asBool(row.favorites_only),
     starredFirst: asBool(row.starred_first),
+  };
+}
+
+export function mapTeamUser(row: Row): TeamUser {
+  const kind = String(row.kind) === "service" ? "service" : "user";
+  return {
+    id: String(row.id),
+    email: String(row.email),
+    name: String(row.name),
+    kind: kind as UserKind,
+    role: String(row.role) === "owner" ? "owner" : "member",
+    disabledAt: asIso(row.disabled_at),
+    createdAt: asIso(row.created_at) ?? new Date(0).toISOString(),
+  };
+}
+
+export function mapFileVersion(row: Row): FileVersionView {
+  return {
+    id: String(row.id),
+    nodeId: String(row.node_id),
+    version: asNumber(row.version) ?? 0,
+    storageKey: String(row.storage_key),
+    size: asNumber(row.size),
+    authorUserId: row.author_user_id ? String(row.author_user_id) : null,
+    createdAt: asIso(row.created_at) ?? new Date(0).toISOString(),
+  };
+}
+
+export function mapAudit(row: Row): AuditEvent {
+  return {
+    id: String(row.id),
+    actorUserId: row.actor_user_id ? String(row.actor_user_id) : null,
+    action: String(row.action),
+    targetType: row.target_type ? String(row.target_type) : null,
+    targetId: row.target_id ? String(row.target_id) : null,
+    detail: jsonField(row.detail, {}),
+    createdAt: asIso(row.created_at) ?? new Date(0).toISOString(),
   };
 }
 

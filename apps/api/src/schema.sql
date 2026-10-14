@@ -1,8 +1,12 @@
+-- The tenant is the team. Membership roles are owner and member.
+-- Drawers belong to a cabinet (projects) inside that team.
 CREATE TABLE tenants (
   id uuid PRIMARY KEY,
   slug text NOT NULL UNIQUE,
   name text NOT NULL,
-  created_at timestamptz NOT NULL
+  version_retention integer NOT NULL DEFAULT 10,
+  created_at timestamptz NOT NULL,
+  CONSTRAINT tenants_version_retention_check CHECK (version_retention >= 1)
 );
 
 CREATE TABLE users (
@@ -11,14 +15,18 @@ CREATE TABLE users (
   name text NOT NULL,
   password_hash text,
   transfer_plan text NOT NULL DEFAULT 'free',
-  created_at timestamptz NOT NULL
+  kind text NOT NULL DEFAULT 'user',
+  disabled_at timestamptz,
+  created_at timestamptz NOT NULL,
+  CONSTRAINT users_kind_check CHECK (kind IN ('user', 'service'))
 );
 
 CREATE TABLE memberships (
   tenant_id uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   role text NOT NULL,
-  PRIMARY KEY (tenant_id, user_id)
+  PRIMARY KEY (tenant_id, user_id),
+  CONSTRAINT memberships_role_check CHECK (role IN ('owner', 'member'))
 );
 
 CREATE TABLE projects (
@@ -36,7 +44,8 @@ CREATE TABLE project_members (
   project_id uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   role text NOT NULL,
-  PRIMARY KEY (project_id, user_id)
+  PRIMARY KEY (project_id, user_id),
+  CONSTRAINT project_members_role_check CHECK (role IN ('owner', 'member'))
 );
 
 CREATE TABLE portals (
@@ -87,6 +96,7 @@ CREATE TABLE nodes (
   etag text,
   starred boolean NOT NULL DEFAULT false,
   color text,
+  sort_order integer NOT NULL DEFAULT 0,
   incomplete boolean NOT NULL DEFAULT false,
   cached_at timestamptz NOT NULL,
   UNIQUE (drawer_id, backend_key)
@@ -240,7 +250,47 @@ CREATE TABLE abuse_reports (
   created_at timestamptz NOT NULL
 );
 
+CREATE TABLE api_keys (
+  id uuid PRIMARY KEY,
+  tenant_id uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name text NOT NULL,
+  key_hash text NOT NULL UNIQUE,
+  key_prefix text NOT NULL,
+  scopes jsonb NOT NULL,
+  expires_at timestamptz,
+  created_by uuid,
+  created_at timestamptz NOT NULL
+);
+
+CREATE TABLE file_versions (
+  id uuid PRIMARY KEY,
+  tenant_id uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  node_id uuid NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+  version integer NOT NULL,
+  storage_key text NOT NULL,
+  size bigint,
+  author_user_id uuid,
+  created_at timestamptz NOT NULL,
+  UNIQUE (node_id, version)
+);
+
+CREATE TABLE audit_log (
+  id uuid PRIMARY KEY,
+  tenant_id uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  actor_user_id uuid,
+  action text NOT NULL,
+  target_type text,
+  target_id text,
+  detail jsonb NOT NULL DEFAULT '{}',
+  created_at timestamptz NOT NULL
+);
+
 CREATE INDEX nodes_parent_idx ON nodes (drawer_id, parent_id);
+CREATE INDEX nodes_sort_idx ON nodes (drawer_id, parent_id, sort_order);
+CREATE INDEX file_versions_node_idx ON file_versions (node_id, version);
+CREATE INDEX api_keys_tenant_idx ON api_keys (tenant_id, user_id);
+CREATE INDEX audit_log_tenant_idx ON audit_log (tenant_id, created_at);
 CREATE INDEX nodes_name_idx ON nodes (tenant_id, name);
 CREATE INDEX activity_project_idx ON activity (project_id, created_at);
 CREATE INDEX tickets_visitor_idx ON tickets (visitor_hash, created_at);
