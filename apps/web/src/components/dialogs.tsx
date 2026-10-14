@@ -1,11 +1,12 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { GRANT_VERBS, PROJECT_KINDS, type Drawer, type GrantView, type GrantVerb, type Project, type TestResult } from "@storageflow/domain";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { api, ApiError } from "@/lib/api";
 import { Button, Checkbox, Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, Textarea } from "@/components/ui";
+import { Check } from "lucide-react";
 
 const wizardSchema = z.object({
   name: z.string().min(1, "Name is required").max(200),
@@ -367,46 +368,132 @@ export function PublishDialog({ fileId, fileName, open, onOpenChange }: { fileId
   );
 }
 
-export function ProjectCreateDialog({ open, onOpenChange, onCreated }: { open: boolean; onOpenChange: (open: boolean) => void; onCreated: (project: Project) => void }) {
+export function ProjectCreateDialog({
+  open,
+  onOpenChange,
+  projects,
+  loading = false,
+  currentId,
+  onSwitch,
+  onCreated,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  projects: Project[];
+  loading?: boolean;
+  currentId?: string | null;
+  onSwitch: (project: Project) => void;
+  onCreated: (project: Project) => void;
+}) {
   const [name, setName] = useState("");
   const [kind, setKind] = useState<(typeof PROJECT_KINDS)[number]>("custom");
   const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setError("");
+    setName("");
+    setKind("custom");
+  }, [open]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>New project</DialogTitle>
-          <DialogDescription>A project is Work, Personal, School, Sports, or a name you type. It is not a folder.</DialogDescription>
+          <DialogTitle>Cabinets</DialogTitle>
+          <DialogDescription>Open a cabinet you can access, or create one. A cabinet is Work, Personal, School, Sports, or a name you type.</DialogDescription>
         </DialogHeader>
-        <form
-          className="space-y-3"
-          onSubmit={async (event) => {
-            event.preventDefault();
-            try {
-              const project = await api<Project>("/projects", { method: "POST", body: JSON.stringify({ name, kind }) });
-              onCreated(project);
-              onOpenChange(false);
-            } catch (cause) {
-              setError(cause instanceof Error ? cause.message : "Could not create the project");
-            }
-          }}
-        >
-          <Label htmlFor="project-name">Name</Label>
-          <Input id="project-name" value={name} onChange={(event) => setName(event.target.value)} />
-          <Label>Kind</Label>
-          <Select value={kind} onValueChange={(value) => setKind(value as (typeof PROJECT_KINDS)[number])}>
-            <SelectTrigger />
-            <SelectContent>
-              {PROJECT_KINDS.map((item) => (
-                <SelectItem key={item} value={item}>
-                  {item}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {error && <p className="text-sm text-destructive">{error}</p>}
-          <Button type="submit">Create project</Button>
-        </form>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <section className="space-y-2" aria-label="Cabinet list">
+            <h2 className="text-sm font-medium">Open</h2>
+            {loading && <p className="text-sm text-muted-foreground">Loading cabinets…</p>}
+            {!loading && projects.length === 0 && (
+              <div className="rounded-[10px] border border-dashed border-input px-3 py-6 text-center">
+                <p className="text-sm font-medium">No cabinets yet</p>
+                <p className="mt-1 text-sm text-muted-foreground">Create one with the form.</p>
+              </div>
+            )}
+            {!loading && projects.length > 0 && (
+              <ul className="max-h-64 space-y-1 overflow-auto">
+                {projects.map((project) => {
+                  const current = project.id === currentId;
+                  return (
+                    <li key={project.id}>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 rounded-[10px] px-2.5 py-2 text-left text-sm hover:bg-accent"
+                        aria-current={current ? "true" : undefined}
+                        onClick={() => onSwitch(project)}
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium">{project.name}</span>
+                          <span className="block text-xs capitalize text-muted-foreground">{project.kind}</span>
+                        </span>
+                        {current && (
+                          <span className="inline-flex items-center gap-1 text-xs font-medium text-[#1d4ed8]">
+                            <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                            Current
+                          </span>
+                        )}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+          <form
+            className="space-y-3"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              const trimmed = name.trim();
+              if (!trimmed) {
+                setError("Name is required");
+                return;
+              }
+              setPending(true);
+              setError("");
+              try {
+                const project = await api<Project>("/projects", { method: "POST", body: JSON.stringify({ name: trimmed, kind }) });
+                setName("");
+                onCreated(project);
+                onOpenChange(false);
+              } catch (cause) {
+                setError(cause instanceof Error ? cause.message : "Could not create the cabinet");
+              } finally {
+                setPending(false);
+              }
+            }}
+          >
+            <h2 className="text-sm font-medium">New cabinet</h2>
+            <div className="space-y-1">
+              <Label htmlFor="project-name">Name</Label>
+              <Input id="project-name" value={name} onChange={(event) => setName(event.target.value)} autoComplete="off" />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="project-kind">Kind</Label>
+              <Select value={kind} onValueChange={(value) => setKind(value as (typeof PROJECT_KINDS)[number])}>
+                <SelectTrigger id="project-kind" />
+                <SelectContent>
+                  {PROJECT_KINDS.map((item) => (
+                    <SelectItem key={item} value={item}>
+                      {item}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {error && (
+              <p role="alert" className="rounded-[10px] border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {error}
+              </p>
+            )}
+            <Button type="submit" disabled={pending}>
+              Create cabinet
+            </Button>
+          </form>
+        </div>
       </DialogContent>
     </Dialog>
   );
