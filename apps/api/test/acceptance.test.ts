@@ -8,8 +8,8 @@ import { createResolver } from "../src/adapters.js";
 import type { AppConfig } from "../src/config.js";
 import { decryptString } from "../src/crypto.js";
 import { openDatabase } from "../src/db.js";
-import { createExtractiveAnswerer, createHashEmbedder, EMBEDDING_DIMENSIONS, type Embedder } from "../src/embed.js";
-import { EMBEDDING_BACKFILL_DELAYS_MS, EMBEDDING_RETRY_DELAYS_MS } from "../src/services/semantic.js";
+import { createExtractiveAnswerer, createHashEmbedder, createHttpEmbedder, EMBEDDING_DIMENSIONS, type Embedder } from "../src/embed.js";
+import { EMBEDDING_BACKFILL_DELAYS_MS, EMBEDDING_RETRY_DELAYS_MS, isEmbedderUnavailable } from "../src/services/semantic.js";
 import { JobQueue } from "../src/jobs.js";
 import { migrate } from "../src/migrate.js";
 import type { Deps } from "../src/services/access.js";
@@ -1029,7 +1029,50 @@ test("semantic search indexes uploads, answers from them, and hides nodes outsid
   await db.close();
 });
 
-test("a refused embedding connection retries, then backfills the file once embeddings recover", async () => {
+function fetchFailed(code: string, message: string): TypeError {
+  const cause = new Error(message) as NodeJS.ErrnoException;
+  cause.code = code;
+  const error = new TypeError("fetch failed");
+  error.cause = cause;
+  return error;
+}
+
+test("embedding outages cover DNS, reset, timeout, and HTTP 5xx", () => {
+  assert.equal(isEmbedderUnavailable(fetchFailed("ENOTFOUND", "getaddrinfo ENOTFOUND embeddings")), true);
+  assert.equal(isEmbedderUnavailable(fetchFailed("EAI_AGAIN", "getaddrinfo EAI_AGAIN embeddings")), true);
+  assert.equal(isEmbedderUnavailable(fetchFailed("ECONNRESET", "socket hang up")), true);
+  assert.equal(isEmbedderUnavailable(fetchFailed("ECONNREFUSED", "connect ECONNREFUSED 127.0.0.1:9")), true);
+  assert.equal(isEmbedderUnavailable(fetchFailed("ETIMEDOUT", "connect ETIMEDOUT 10.0.0.8:80")), true);
+  const timeout = new TypeError("fetch failed");
+  const cause = new Error("Connect Timeout Error") as NodeJS.ErrnoException & { name: string };
+  cause.code = "UND_ERR_CONNECT_TIMEOUT";
+  cause.name = "ConnectTimeoutError";
+  timeout.cause = cause;
+  assert.equal(isEmbedderUnavailable(timeout), true);
+  const server = new Error("Embedding request failed (503)") as Error & { status: number };
+  server.status = 503;
+  assert.equal(isEmbedderUnavailable(server), true);
+  assert.equal(isEmbedderUnavailable(new Error("Embedding request failed (502)")), true);
+  const client = new Error("Embedding request failed (400)") as Error & { status: number };
+  client.status = 400;
+  assert.equal(isEmbedderUnavailable(client), false);
+  assert.equal(isEmbedderUnavailable(new Error("bad vector")), false);
+});
+
+test("http embedder 5xx is retryable and 4xx is not", async () => {
+  const original = globalThis.fetch;
+  const embedder = createHttpEmbedder({ url: "http://embeddings:8080/v1", apiKey: "", model: "m" });
+  try {
+    globalThis.fetch = async () => new Response("down", { status: 502 });
+    await assert.rejects(() => embedder.embed(["hello"]), (error: unknown) => isEmbedderUnavailable(error));
+    globalThis.fetch = async () => new Response("bad", { status: 400 });
+    await assert.rejects(() => embedder.embed(["hello"]), (error: unknown) => !isEmbedderUnavailable(error));
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+async function uploadWhileEmbedderDown(fail: () => unknown) {
   const db = await openDatabase("pglite:");
   await migrate(db);
   const jobs = new JobQueue();
@@ -1044,13 +1087,7 @@ test("a refused embedding connection retries, then backfills the file once embed
     embedder: {
       dimensions: EMBEDDING_DIMENSIONS,
       async embed(texts) {
-        if (!ready.up) {
-          const cause = new Error("connect ECONNREFUSED 127.0.0.1:9") as NodeJS.ErrnoException;
-          cause.code = "ECONNREFUSED";
-          const error = new TypeError("fetch failed");
-          error.cause = cause;
-          throw error;
-        }
+        if (!ready.up) throw fail();
         return inner.embed(texts);
       },
     },
@@ -1138,4 +1175,20 @@ test("a refused embedding connection retries, then backfills the file once embed
   assert.match(semantic.json[0].snippet, /4200/);
 
   await db.close();
+}
+
+test("a refused embedding connection retries, then backfills the file once embeddings recover", async () => {
+  await uploadWhileEmbedderDown(() => fetchFailed("ECONNREFUSED", "connect ECONNREFUSED 127.0.0.1:9"));
+});
+
+test("a stopped embedder host (ENOTFOUND) retries, then backfills the file once the host resolves", async () => {
+  await uploadWhileEmbedderDown(() => fetchFailed("ENOTFOUND", "getaddrinfo ENOTFOUND embeddings"));
+});
+
+test("an embedding HTTP 503 retries, then backfills the file once the endpoint recovers", async () => {
+  await uploadWhileEmbedderDown(() => {
+    const error = new Error("Embedding request failed (503)") as Error & { status: number };
+    error.status = 503;
+    return error;
+  });
 });
