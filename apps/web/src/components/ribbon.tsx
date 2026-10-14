@@ -14,9 +14,9 @@ import {
   FolderOpen,
   FolderPlus,
   Globe,
-  Inbox,
   Mail,
   Minus,
+  MoreHorizontal,
   Pencil,
   RefreshCw,
   Scan,
@@ -32,12 +32,14 @@ import {
   ArrowUp,
   type LucideIcon,
 } from "lucide-react";
-import { useState } from "react";
-import { Button, Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Input } from "@/components/ui";
+import { useLayoutEffect, useRef, useState } from "react";
+import { Button, Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Input } from "@/components/ui";
 import {
+  RIBBON_ACTION_WIDTH,
   RIBBON_TABS,
   comingSoonCopy,
   disabledReason,
+  fitRibbonRow,
   groupsForTab,
   isActionEnabled,
   issueUrl,
@@ -92,11 +94,14 @@ export function FileCenterRibbon({
   hits,
   searching,
   onOpenHit,
+  rowWidth,
 }: {
   tab: RibbonTab;
   onTabChange: (tab: RibbonTab) => void;
   selection: RibbonSelection;
   onAction: (id: RibbonActionId) => void;
+  /** Fixed row width for tests. The live ribbon measures itself. */
+  rowWidth?: number;
   searchValue: string;
   onSearchValue: (value: string) => void;
   onSearch: () => void;
@@ -146,44 +151,13 @@ export function FileCenterRibbon({
             onOpenHit={onOpenHit}
           />
         ) : (
-          <>
-            {tab === "Inbox" && (
-              <p className="ribbon-note">
-                <Inbox className="h-4 w-4" aria-hidden="true" />
-                Incoming mail will show up here.
-              </p>
-            )}
-            {groupsForTab(tab).map((group, index) => (
-              <div key={group.join("-")} className="ribbon-group">
-                {index > 0 && <span className="ribbon-rule" aria-hidden="true" />}
-                {group.map((id) => {
-                  const action = ribbonAction(id);
-                  const enabled = isActionEnabled(id, selection);
-                  const reason = disabledReason(id, selection);
-                  const Icon = ICONS[id];
-                  const soonLabel = action.availability === "soon";
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      className="ribbon-action"
-                      data-action={id}
-                      data-soon={soonLabel ? "true" : "false"}
-                      data-live={action.availability === "live" ? "true" : "false"}
-                      disabled={!enabled}
-                      aria-label={soonLabel ? `${action.label}, coming soon` : action.label}
-                      title={reason ?? (soonLabel ? "Coming soon" : action.label)}
-                      onClick={() => press(id)}
-                    >
-                      <Icon className="h-5 w-5" aria-hidden="true" />
-                      <span className="label">{action.label}</span>
-                      {soonLabel && <span className="soon">Soon</span>}
-                    </button>
-                  );
-                })}
-              </div>
-            ))}
-          </>
+          <RibbonActionRow
+            groups={groupsForTab(tab)}
+            selection={selection}
+            rowWidth={rowWidth}
+            note={tab === "Inbox" ? "Incoming mail will show up here." : undefined}
+            onPress={press}
+          />
         )}
       </div>
       <Dialog open={!!soon} onOpenChange={(open) => !open && setSoon(null)}>
@@ -200,6 +174,107 @@ export function FileCenterRibbon({
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function RibbonActionRow({
+  groups,
+  selection,
+  rowWidth,
+  note,
+  onPress,
+}: {
+  groups: readonly (readonly RibbonActionId[])[];
+  selection: RibbonSelection;
+  rowWidth?: number;
+  note?: string;
+  onPress: (id: RibbonActionId) => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [measured, setMeasured] = useState(0);
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node || rowWidth != null) return;
+    const apply = () => setMeasured(node.clientWidth);
+    apply();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(apply);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [rowWidth]);
+  const available = rowWidth ?? (measured > 0 ? measured : Number.POSITIVE_INFINITY);
+  const layout = fitRibbonRow(groups, available);
+
+  return (
+    <>
+      {note && <span className="ribbon-sr">{note}</span>}
+    <div
+      ref={ref}
+      className="ribbon-row"
+      data-testid="ribbon-row"
+      data-ribbon-rows="1"
+      data-overflow-count={layout.overflow.length}
+      style={{ flexWrap: "nowrap" }}
+    >
+      {layout.visible.flatMap((item) => {
+        const nodes = [
+          <RibbonButton key={item.id} id={item.id} selection={selection} onPress={onPress} />,
+        ];
+        if (item.ruleBefore) {
+          nodes.unshift(<span key={`${item.id}-rule`} className="ribbon-rule" aria-hidden="true" />);
+        }
+        return nodes;
+      })}
+      {layout.overflow.length > 0 && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button type="button" className="ribbon-action" aria-label="More actions" data-overflow="true" style={{ width: RIBBON_ACTION_WIDTH }}>
+              <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
+              <span className="label">More</span>
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            {layout.overflow.map((id) => {
+              const action = ribbonAction(id);
+              const enabled = isActionEnabled(id, selection);
+              const soonLabel = action.availability === "soon";
+              return (
+                <DropdownMenuItem key={id} disabled={!enabled} data-action={id} onSelect={() => onPress(id)}>
+                  {soonLabel ? `${action.label} (coming soon)` : action.label}
+                </DropdownMenuItem>
+              );
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+    </div>
+    </>
+  );
+}
+
+function RibbonButton({ id, selection, onPress }: { id: RibbonActionId; selection: RibbonSelection; onPress: (id: RibbonActionId) => void }) {
+  const action = ribbonAction(id);
+  const enabled = isActionEnabled(id, selection);
+  const reason = disabledReason(id, selection);
+  const Icon = ICONS[id];
+  const soonLabel = action.availability === "soon";
+  return (
+    <button
+      type="button"
+      className="ribbon-action"
+      data-action={id}
+      data-soon={soonLabel ? "true" : "false"}
+      data-live={action.availability === "live" ? "true" : "false"}
+      disabled={!enabled}
+      aria-label={soonLabel ? `${action.label}, coming soon` : action.label}
+      title={reason ?? (soonLabel ? "Coming soon" : action.label)}
+      style={{ width: RIBBON_ACTION_WIDTH }}
+      onClick={() => onPress(id)}
+    >
+      <Icon className="h-4 w-4" aria-hidden="true" />
+      <span className="label">{action.label}</span>
+      {soonLabel && <span className="soon">Soon</span>}
+    </button>
   );
 }
 

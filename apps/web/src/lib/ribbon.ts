@@ -87,6 +87,64 @@ export const RIBBON_ACTIONS: readonly RibbonAction[] = [
   { id: "publish", label: "Publish", availability: "live", issue: null },
 ];
 
+/** Compact action control, in CSS pixels. The ribbon buttons use this same width. */
+export const RIBBON_ACTION_WIDTH = 64;
+/** Vertical rule between groups, including its side margins. */
+export const RIBBON_RULE_WIDTH = 13;
+/** Width of the overflow control reserved at the end of a full row. */
+export const RIBBON_OVERFLOW_WIDTH = 64;
+/** Content width of the ribbon on a desktop cabinet, after the sidebar and page margins. */
+export const DESKTOP_RIBBON_WIDTH = 1024;
+
+export interface RibbonRowItem {
+  id: RibbonActionId;
+  ruleBefore: boolean;
+}
+
+export interface RibbonRowLayout {
+  visible: RibbonRowItem[];
+  overflow: RibbonActionId[];
+  width: number;
+}
+
+function ribbonSlots(groups: readonly (readonly RibbonActionId[])[]): RibbonRowItem[] {
+  const slots: RibbonRowItem[] = [];
+  groups.forEach((group, groupIndex) => {
+    group.forEach((id, index) => {
+      slots.push({ id, ruleBefore: groupIndex > 0 && index === 0 });
+    });
+  });
+  return slots;
+}
+
+function slotWidth(slot: RibbonRowItem, drawRule: boolean): number {
+  return (drawRule && slot.ruleBefore ? RIBBON_RULE_WIDTH : 0) + RIBBON_ACTION_WIDTH;
+}
+
+/** Pack actions onto one row. Whatever does not fit goes to the overflow menu, in the same order. */
+export function fitRibbonRow(groups: readonly (readonly RibbonActionId[])[], containerWidth: number): RibbonRowLayout {
+  const slots = ribbonSlots(groups);
+  const full = slots.reduce((sum, slot) => sum + slotWidth(slot, true), 0);
+  if (!Number.isFinite(containerWidth) || containerWidth <= 0 || full <= containerWidth) {
+    return { visible: slots, overflow: [], width: full };
+  }
+  let used = RIBBON_OVERFLOW_WIDTH;
+  const visible: RibbonRowItem[] = [];
+  let index = 0;
+  for (; index < slots.length; index += 1) {
+    const ruleBefore = visible.length > 0 && slots[index].ruleBefore;
+    const next = slotWidth(slots[index], ruleBefore);
+    if (used + next > containerWidth) break;
+    used += next;
+    visible.push({ id: slots[index].id, ruleBefore });
+  }
+  return {
+    visible,
+    overflow: slots.slice(index).map((slot) => slot.id),
+    width: used,
+  };
+}
+
 export const HOME_GROUPS: readonly (readonly RibbonActionId[])[] = [
   ["cabinets", "open"],
   ["email", "scan", "ocr"],

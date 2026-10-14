@@ -173,8 +173,17 @@ button, input, textarea { font: inherit; }
 }
 
 .ribbon {
+  position: relative;
   border-bottom: 1px solid var(--line);
   background: white;
+}
+
+.ribbon-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
 }
 
 .ribbon-tabs {
@@ -202,46 +211,48 @@ button, input, textarea { font: inherit; }
 }
 
 .ribbon-panel {
-  display: flex;
-  min-height: 5.25rem;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 0.25rem 0.15rem;
-  padding: 0.35rem 0.45rem 0.5rem;
+  min-height: 3.6rem;
+  padding: 0.2rem 0.35rem 0.3rem;
 }
 
-.ribbon-group {
+.ribbon-row {
   display: flex;
-  flex-wrap: wrap;
+  width: 100%;
+  flex-wrap: nowrap;
   align-items: stretch;
+  overflow: hidden;
 }
 
 .ribbon-rule {
   width: 1px;
+  flex: 0 0 auto;
   align-self: stretch;
-  margin: 0.35rem 0.35rem;
+  margin: 0.35rem 6px;
   background: var(--line);
 }
 
 .ribbon-action {
   display: flex;
-  width: 4.7rem;
-  min-height: 4.4rem;
+  flex: 0 0 auto;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.1rem;
+  gap: 0.05rem;
   border: 0;
   border-radius: 8px;
   background: transparent;
-  padding: 0.2rem 0.15rem;
+  padding: 0.15rem 0.1rem;
   color: var(--ink);
 }
 
 .ribbon-action .label {
-  font-size: 11px;
-  line-height: 1.15;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 10px;
+  line-height: 1.1;
   text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ribbon-action .soon {
@@ -260,20 +271,10 @@ button, input, textarea { font: inherit; }
   opacity: 0.38;
 }
 
-.ribbon-note {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.15rem 0.45rem 0;
-  color: var(--ink-soft);
-  font-size: 0.8125rem;
-}
-
 .ribbon-search {
   display: flex;
   width: min(36rem, 100%);
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 0.5rem;
   padding: 0.35rem;

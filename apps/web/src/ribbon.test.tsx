@@ -5,9 +5,12 @@ import { describe, expect, it, vi } from "vitest";
 import { DetailsTable } from "@/components/explorer";
 import { FileCenterRibbon } from "@/components/ribbon";
 import {
+  DESKTOP_RIBBON_WIDTH,
   DETAIL_COLUMN_HEADERS,
   HOME_GROUPS,
   comingSoonCopy,
+  fitRibbonRow,
+  groupsForTab,
   isActionEnabled,
   ribbonAction,
   statusLabel,
@@ -72,6 +75,51 @@ describe("home ribbon order", () => {
       "new-folder",
       "upload",
     ]);
+  });
+});
+
+function renderRibbon(rowWidth?: number) {
+  return render(
+    <FileCenterRibbon
+      tab="Home"
+      onTabChange={vi.fn()}
+      selection={emptySelection}
+      onAction={vi.fn()}
+      rowWidth={rowWidth}
+      searchValue=""
+      onSearchValue={vi.fn()}
+      onSearch={vi.fn()}
+      hits={null}
+      searching={false}
+      onOpenHit={vi.fn()}
+    />,
+  );
+}
+
+describe("home ribbon row", () => {
+  it("does not wrap the Home ribbon to a second row at desktop width", async () => {
+    const user = userEvent.setup();
+    for (const tab of ["Home", "Inbox", "Manage", "Edit"] as const) {
+      const layout = fitRibbonRow(groupsForTab(tab), DESKTOP_RIBBON_WIDTH);
+      expect(layout.width).toBeLessThanOrEqual(DESKTOP_RIBBON_WIDTH);
+      expect(layout.visible.length + layout.overflow.length).toBe(groupsForTab(tab).flat().length);
+    }
+    const home = fitRibbonRow(HOME_GROUPS, DESKTOP_RIBBON_WIDTH);
+    for (const id of ["email", "scan", "ocr", "tools", "move"] as const) {
+      expect(home.visible.map((item) => item.id)).toContain(id);
+    }
+    renderRibbon(DESKTOP_RIBBON_WIDTH);
+    const row = screen.getByTestId("ribbon-row");
+    expect(row.getAttribute("data-ribbon-rows")).toBe("1");
+    expect(row.style.flexWrap).toBe("nowrap");
+    expect(row.querySelectorAll(".ribbon-row")).toHaveLength(0);
+    expect([...row.querySelectorAll<HTMLElement>("[data-action]")].map((node) => node.getAttribute("data-action"))).toEqual(home.visible.map((item) => item.id));
+    if (home.overflow.length > 0) {
+      await user.click(screen.getByRole("button", { name: "More actions" }));
+      for (const id of home.overflow) {
+        expect(screen.getByRole("menuitem", { name: new RegExp(ribbonAction(id).label) })).toBeTruthy();
+      }
+    }
   });
 });
 
