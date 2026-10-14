@@ -45,3 +45,32 @@ jobs:
 
       - name: Test
         run: npm test --workspace=@storageflow/${{ matrix.app }}
+
+  storage-s3:
+    name: s3 adapter (rclone)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Install rclone 1.75.0
+        run: |
+          curl -fsSL -o /tmp/rclone.zip https://downloads.rclone.org/v1.75.0/rclone-v1.75.0-linux-amd64.zip
+          unzip -j /tmp/rclone.zip -d /tmp/rclone-bin
+          sudo mv /tmp/rclone-bin/rclone /usr/local/bin/rclone
+          rclone version
+
+      - name: Typecheck
+        run: npm run typecheck --workspace=@storageflow/storage
+
+      - name: Test
+        run: REQUIRE_S3_RCLONE=1 npm test --workspace=@storageflow/storage
