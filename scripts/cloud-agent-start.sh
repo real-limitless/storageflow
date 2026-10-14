@@ -7,6 +7,18 @@ export PATH="/usr/local/bin:$PATH"
 
 bash "$root/scripts/strip-cursor-attribution.sh"
 
+# Compose bind-mounts ./data. A previous root-owned daemon can leave that
+# directory unwritable, and init-secrets.sh then cannot create data/media.
+ensure_workspace_dirs() {
+  mkdir -p data/backend/acme/plain data/media secrets 2>/dev/null || true
+  if [ ! -w data/media ] || [ ! -w data/backend ] || [ ! -w secrets ]; then
+    sudo mkdir -p data/backend/acme/plain data/media secrets
+    sudo chown -R "$(id -u):$(id -g)" data secrets
+  fi
+}
+
+ensure_workspace_dirs
+
 open_docker_socket() {
   if [ -S /var/run/docker.sock ]; then
     sudo chmod 666 /var/run/docker.sock || true
@@ -31,6 +43,7 @@ if ! docker info >/dev/null 2>&1; then
   done
 fi
 docker info >/dev/null
+ensure_workspace_dirs
 
 bash "$root/scripts/init-secrets.sh"
 
