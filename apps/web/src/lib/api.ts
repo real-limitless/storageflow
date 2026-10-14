@@ -8,6 +8,24 @@ export class ApiError extends Error {
   }
 }
 
+/** Browser navigation used by the API client. Tests replace these without touching window.location. */
+export const browserLocation = {
+  pathname(): string {
+    return window.location.pathname;
+  },
+  assign(url: string) {
+    window.location.assign(url);
+  },
+};
+
+function returnToSignIn(status: number, message: string) {
+  // A missing session says "Sign in". A rejected authenticator code is still signed in.
+  if (status !== 401 || message !== "Sign in" || typeof window === "undefined") return;
+  const pathName = browserLocation.pathname();
+  if (pathName.startsWith("/sign-in") || pathName.startsWith("/portal") || pathName.startsWith("/d/") || pathName.startsWith("/catalog")) return;
+  browserLocation.assign("/sign-in");
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   if (typeof init?.body === "string" && !headers.has("content-type")) headers.set("content-type", "application/json");
@@ -18,12 +36,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     const message = typeof payload === "object" && payload?.error?.message ? String(payload.error.message) : response.statusText;
     const code = typeof payload === "object" && payload?.error?.code ? String(payload.error.code) : "error";
-    if (response.status === 401 && typeof window !== "undefined") {
-      const pathName = window.location.pathname;
-      if (!pathName.startsWith("/sign-in") && !pathName.startsWith("/portal") && !pathName.startsWith("/d/") && !pathName.startsWith("/catalog")) {
-        window.location.assign("/sign-in");
-      }
-    }
+    returnToSignIn(response.status, message);
     throw new ApiError(response.status, code, message);
   }
   return payload as T;
