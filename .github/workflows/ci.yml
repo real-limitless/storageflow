@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - DEVELOPMENT
+      - CORE
+  pull_request:
+    branches:
+      - DEVELOPMENT
+      - CORE
+
+permissions:
+  contents: read
+
+jobs:
+  app:
+    name: apps/${{ matrix.app }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app:
+          - web
+          - api
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # Neither app depends on a linter. This runs the workspace lint script when one exists.
+      - name: Lint
+        run: npm run lint --workspace=@storageflow/${{ matrix.app }} --if-present
+
+      - name: Typecheck
+        run: npm run typecheck --workspace=@storageflow/${{ matrix.app }}
+
+      - name: Test
+        run: npm test --workspace=@storageflow/${{ matrix.app }}
