@@ -43,4 +43,32 @@ Path(".env").chmod(0o600)
 PY
 fi
 
+python3 - << 'PY'
+import secrets
+from pathlib import Path
+
+path = Path(".env")
+text = path.read_text() if path.exists() else ""
+
+def ensure(key, value):
+    global text
+    if any(line.startswith(f"{key}=") for line in text.splitlines()):
+        return
+    if text and not text.endswith("\n"):
+        text += "\n"
+    text += f"{key}={value}\n"
+
+ensure("APP_ENCRYPTION_KEY", secrets.token_hex(32))
+ensure("POSTGRES_PASSWORD", secrets.token_urlsafe(18))
+ensure("SEED_EMAIL", "ada@acme.test")
+ensure("SEED_PASSWORD", secrets.token_urlsafe(12))
+ensure("SEED_NAME", "Ada")
+ensure("ALLOW_PLAN_FLAG", "1")
+ensure("PUBLIC_ORIGIN", "http://127.0.0.1:5173")
+ensure("HOSTED_S3_BUCKET", "acme-plain")
+ensure("HOSTED_TENANT", "acme")
+path.write_text(text)
+path.chmod(0o600)
+PY
+
 echo "ready: .env and secrets/ stay local"
