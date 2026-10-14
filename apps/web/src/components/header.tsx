@@ -1,7 +1,7 @@
 import type { Me, Project } from "@storageflow/domain";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, ChevronDown, Files, FolderKanban, Home, LogOut, Settings } from "lucide-react";
+import { Check, ChevronDown, Files, FolderKanban, Home, LogOut, Settings, Users } from "lucide-react";
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { api } from "@/lib/api";
 import { filterCabinets, projectIdFromUrl } from "@/lib/cabinets";
@@ -317,6 +317,11 @@ export function AppShell({
               </DropdownMenuContent>
             </DropdownMenu>
             <p className="pane-label px-2 pb-1 pt-4">Workspace</p>
+            {me.data?.activeTenant?.role === "owner" && (
+              <RailLink to="/app/admin" active={pathname === "/app/admin"} icon={<Users className="h-4 w-4" />}>
+                Accounts
+              </RailLink>
+            )}
             {project ? (
               <Link
                 to="/app/p/$projectId/settings"
@@ -367,6 +372,9 @@ export function AppShell({
               </DropdownMenuTrigger>
               <DropdownMenuContent>
                 <DropdownMenuItem onSelect={() => navigate({ to: "/app/account" })}>Account</DropdownMenuItem>
+                {me.data?.activeTenant?.role === "owner" && (
+                  <DropdownMenuItem onSelect={() => navigate({ to: "/app/admin" })}>Accounts</DropdownMenuItem>
+                )}
                 {project && <DropdownMenuItem onSelect={() => navigate({ to: "/app/p/$projectId/settings", params: { projectId: project.id } })}>Cabinet settings</DropdownMenuItem>}
                 <DropdownMenuItem onSelect={() => void signOut()}>Sign out</DropdownMenuItem>
               </DropdownMenuContent>

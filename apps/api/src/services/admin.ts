@@ -23,6 +23,19 @@ async function teamUser(deps: Deps, tenantId: string, userId: string): Promise<R
   return rows[0];
 }
 
+export async function listTeamUsers(deps: Deps, actor: MemberActor): Promise<TeamUser[]> {
+  requireOwner(actor);
+  const rows = await deps.db.query<Row>(
+    `SELECT u.*, m.role
+     FROM users u
+     JOIN memberships m ON m.user_id = u.id
+     WHERE m.tenant_id = $1
+     ORDER BY u.created_at ASC, u.email ASC`,
+    [actor.tenantId],
+  );
+  return rows.map(mapTeamUser);
+}
+
 export async function createTeamUser(deps: Deps, actor: MemberActor, body: Record<string, unknown>): Promise<TeamUser> {
   requireOwner(actor);
   const email = String(body.email ?? "").trim().toLowerCase();
