@@ -18,11 +18,17 @@ export async function migrate(db: Db): Promise<void> {
     await db.exec(sql);
     await mark(db, "001");
     await mark(db, "002");
+    await mark(db, "003");
     return;
   }
   if (!applied.has("002")) {
     const sql = fs.readFileSync(new URL("./migrations/002.sql", import.meta.url), "utf8");
     await db.exec(sql);
     await mark(db, "002");
+  }
+  if (!applied.has("003")) {
+    const sql = fs.readFileSync(new URL("./migrations/003.sql", import.meta.url), "utf8");
+    await db.exec(sql);
+    await mark(db, "003");
   }
 }

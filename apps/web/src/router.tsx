@@ -7,6 +7,7 @@ import { AccountPage } from "@/routes/account";
 import { AdminPage } from "@/routes/admin";
 import { CatalogPage, DownloadPage } from "@/routes/public";
 import { PortalPage } from "@/routes/portal";
+import { SecurityPage } from "@/routes/security";
 import { SettingsPage } from "@/routes/settings";
 import { SignInPage } from "@/routes/sign-in";
 
@@ -82,6 +83,12 @@ const adminRoute = createRoute({
   component: AdminPage,
 });
 
+const securityRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "security",
+  component: SecurityPage,
+});
+
 const portalRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/portal/$slug",
@@ -113,7 +120,7 @@ const catalogRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   indexRoute,
   signInRoute,
-  appRoute.addChildren([appIndexRoute, projectRoute, explorerRoute, settingsRoute, accountRoute, adminRoute]),
+  appRoute.addChildren([appIndexRoute, projectRoute, explorerRoute, settingsRoute, accountRoute, adminRoute, securityRoute]),
   portalRoute,
   portalFolderRoute,
   downloadRoute,

@@ -17,6 +17,9 @@ CREATE TABLE users (
   transfer_plan text NOT NULL DEFAULT 'free',
   kind text NOT NULL DEFAULT 'user',
   disabled_at timestamptz,
+  totp_cipher text,
+  totp_pending_cipher text,
+  mfa_enabled boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL,
   CONSTRAINT users_kind_check CHECK (kind IN ('user', 'service'))
 );
@@ -286,11 +289,27 @@ CREATE TABLE audit_log (
   created_at timestamptz NOT NULL
 );
 
+CREATE TABLE mfa_recovery_codes (
+  id uuid PRIMARY KEY,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  code_cipher text NOT NULL,
+  used_at timestamptz,
+  created_at timestamptz NOT NULL
+);
+
+CREATE TABLE mfa_challenges (
+  token_hash text PRIMARY KEY,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at timestamptz NOT NULL,
+  created_at timestamptz NOT NULL
+);
+
 CREATE INDEX nodes_parent_idx ON nodes (drawer_id, parent_id);
 CREATE INDEX nodes_sort_idx ON nodes (drawer_id, parent_id, sort_order);
 CREATE INDEX file_versions_node_idx ON file_versions (node_id, version);
 CREATE INDEX api_keys_tenant_idx ON api_keys (tenant_id, user_id);
 CREATE INDEX audit_log_tenant_idx ON audit_log (tenant_id, created_at);
+CREATE INDEX mfa_recovery_codes_user_idx ON mfa_recovery_codes (user_id);
 CREATE INDEX nodes_name_idx ON nodes (tenant_id, name);
 CREATE INDEX activity_project_idx ON activity (project_id, created_at);
 CREATE INDEX tickets_visitor_idx ON tickets (visitor_hash, created_at);

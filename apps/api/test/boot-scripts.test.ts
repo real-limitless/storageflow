@@ -7,17 +7,13 @@ import test from "node:test";
 
 const repo = path.resolve(import.meta.dirname, "../../..");
 
-function stage(options?: { stubStrip?: boolean }): string {
+function stage(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sf-boot-"));
   fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
   fs.mkdirSync(path.join(dir, "secrets"), { recursive: true });
-  for (const name of ["init-secrets.sh", "cloud-agent-start.sh", "strip-cursor-attribution.sh"]) {
+  for (const name of ["init-secrets.sh", "cloud-agent-start.sh"]) {
     fs.copyFileSync(path.join(repo, "scripts", name), path.join(dir, "scripts", name));
     fs.chmodSync(path.join(dir, "scripts", name), 0o755);
-  }
-  if (options?.stubStrip) {
-    fs.writeFileSync(path.join(dir, "scripts", "strip-cursor-attribution.sh"), "#!/bin/sh\nexit 0\n");
-    fs.chmodSync(path.join(dir, "scripts", "strip-cursor-attribution.sh"), 0o755);
   }
   for (const name of ["tenants.json.example", "rclone.json.example"]) {
     fs.copyFileSync(path.join(repo, "secrets", name), path.join(dir, "secrets", name));
@@ -55,7 +51,7 @@ test("start script does not call docker compose down -v unless STORAGEFLOW_RESET
   assert.ok(resetAt > 0 && commandAt > resetAt);
 
   function run(reset: boolean) {
-    const dir = stage({ stubStrip: true });
+    const dir = stage();
     const stub = path.join(dir, "stub-bin");
     const log = path.join(dir, "commands.log");
     fs.mkdirSync(stub);

@@ -375,6 +375,7 @@ export function AppShell({
                 {me.data?.activeTenant?.role === "owner" && (
                   <DropdownMenuItem onSelect={() => navigate({ to: "/app/admin" })}>Accounts</DropdownMenuItem>
                 )}
+                <DropdownMenuItem onSelect={() => navigate({ to: "/app/security" })}>Security</DropdownMenuItem>
                 {project && <DropdownMenuItem onSelect={() => navigate({ to: "/app/p/$projectId/settings", params: { projectId: project.id } })}>Cabinet settings</DropdownMenuItem>}
                 <DropdownMenuItem onSelect={() => void signOut()}>Sign out</DropdownMenuItem>
               </DropdownMenuContent>

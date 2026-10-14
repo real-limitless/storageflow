@@ -1,5 +1,5 @@
 -- Historical empty-database schema for migration 001.
--- Fresh installs apply schema.sql and record both 001 and 002.
+-- Fresh installs apply schema.sql and record 001, 002, and 003.
 -- A database that already recorded 001 receives migrations/002.sql.
 CREATE TABLE tenants (
   id uuid PRIMARY KEY,
