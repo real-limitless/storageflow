@@ -21,6 +21,12 @@ function encodeCopySource(bucket: string, key: string): string {
   return `${bucket}/${key.split("/").map(encodeURIComponent).join("/")}`;
 }
 
+// rclone serve s3 maps keys onto filesystem paths. A zero-byte object whose
+// key is the folder itself ("Ordering" or "Ordering/") is a file, so every
+// child write fails with "file already exists". A placeholder inside the
+// folder is a real directory and still lists as a prefix.
+const DIRECTORY_PLACEHOLDER = ".sf-directory";
+
 export class S3Adapter implements StorageAdapter {
   readonly kind: "s3" | "hosted";
   readonly prefix: string;
@@ -81,6 +87,7 @@ export class S3Adapter implements StorageAdapter {
       }
       for (const object of page.Contents ?? []) {
         if (!object.Key || object.Key === root || object.Key.endsWith("/")) continue;
+        if (baseName(object.Key) === DIRECTORY_PLACEHOLDER) continue;
         entries.push({
           key: object.Key,
           name: baseName(object.Key),
@@ -112,11 +119,15 @@ export class S3Adapter implements StorageAdapter {
   async mkdir(prefix: string): Promise<void> {
     const key = normalizePrefix(prefix);
     this.guard(key);
+    await this.clearStaleDirectoryFiles(key);
+    const marker = `${key}${DIRECTORY_PLACEHOLDER}`;
+    this.guard(marker);
     await this.client.send(
       new PutObjectCommand({
         Bucket: this.bucket,
-        Key: key,
+        Key: marker,
         Body: new Uint8Array(),
+        ContentLength: 0,
         ContentType: "application/x-directory",
       }),
     );
@@ -124,6 +135,7 @@ export class S3Adapter implements StorageAdapter {
 
   async write(key: string, body: ReadableStream<Uint8Array>, size: number): Promise<void> {
     this.guard(key);
+    await this.clearStaleDirectoryFiles(key);
     const nodeStream = Readable.fromWeb(body as import("node:stream/web").ReadableStream);
     await this.client.send(
       new PutObjectCommand({
@@ -172,6 +184,7 @@ export class S3Adapter implements StorageAdapter {
   async move(from: string, to: string): Promise<void> {
     this.guard(from);
     this.guard(to);
+    await this.clearStaleDirectoryFiles(to);
     if (from.endsWith("/")) {
       const dest = normalizePrefix(to);
       const keys = await this.listAll(from);
@@ -203,6 +216,8 @@ export class S3Adapter implements StorageAdapter {
       return;
     }
     const prefix = key.endsWith("/") ? key : `${key}/`;
+    const bare = prefix.slice(0, -1);
+    if (bare) await this.deleteStaleDirectoryFile(bare);
     const keys = await this.listAll(prefix);
     if (!keys.includes(key) && (await this.exists(key))) keys.push(key);
     for (let index = 0; index < keys.length; index += 1000) {
@@ -226,8 +241,36 @@ export class S3Adapter implements StorageAdapter {
     }
   }
 
+  private covers(key: string): boolean {
+    return isInsidePrefix(this.prefix, key) || normalizePrefix(key) === this.prefix;
+  }
+
+  private async deleteStaleDirectoryFile(key: string): Promise<void> {
+    if (!this.covers(key) || baseName(key) === DIRECTORY_PLACEHOLDER) return;
+    try {
+      const head = await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }));
+      const type = head.ContentType ?? "";
+      if ((head.ContentLength ?? 0) === 0 && type.startsWith("application/x-directory")) {
+        await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
+      }
+    } catch {
+      // A missing key is a directory rclone already created, not a stale file.
+    }
+  }
+
+  private async clearStaleDirectoryFiles(key: string): Promise<void> {
+    const directory = key.endsWith("/") ? key.slice(0, -1) : key.slice(0, Math.max(0, key.lastIndexOf("/")));
+    if (!directory) return;
+    let acc = "";
+    for (const part of directory.split("/")) {
+      acc = acc ? `${acc}/${part}` : part;
+      await this.deleteStaleDirectoryFile(acc);
+    }
+  }
+
   async presignPut(key: string, options: { contentType?: string; expiresIn: number }): Promise<{ url: string; headers: Record<string, string> }> {
     this.guard(key);
+    await this.clearStaleDirectoryFiles(key);
     const command = new PutObjectCommand({
       Bucket: this.bucket,
       Key: key,
@@ -249,6 +292,7 @@ export class S3Adapter implements StorageAdapter {
 
   async createMultipart(key: string, contentType: string | undefined, partSize: number, size: number, expiresIn: number) {
     this.guard(key);
+    await this.clearStaleDirectoryFiles(key);
     const created = await this.client.send(
       new CreateMultipartUploadCommand({
         Bucket: this.bucket,
