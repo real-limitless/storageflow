@@ -5,6 +5,44 @@ root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 cd "$root"
 export PATH="/usr/local/bin:$PATH"
 
+# Drop injected commit attribution if the agent hooks directory is present.
+strip_injected_attribution() {
+  local hooks_root="/home/ubuntu/.cursor/agent-hooks"
+  local src="$root/.cursor/hooks/commit-msg-strip-cursor-attribution"
+  [ -d "$hooks_root" ] || return 0
+  find "$hooks_root" \( -name 'commit-msg.cursor.co-author' -o -name '*co-author*' \) -type f -delete 2>/dev/null || true
+  if [ -f "$src" ]; then
+    local dir
+    for dir in "$hooks_root"/*/; do
+      [ -d "$dir" ] || continue
+      if [ -e "${dir}.dispatcher" ] || [ -e "${dir}commit-msg" ]; then
+        install -m 0755 "$src" "${dir}commit-msg.cursor.zz-strip-attribution" || true
+      fi
+    done
+  fi
+  if pgrep -f 'commit-msg.cursor.zz-strip-attribution' >/dev/null 2>&1; then
+    return 0
+  fi
+  (
+    # marker: commit-msg.cursor.zz-strip-attribution
+    while true; do
+      find "$hooks_root" \( -name 'commit-msg.cursor.co-author' -o -name '*co-author*' \) -type f -delete 2>/dev/null || true
+      if [ -f "$src" ]; then
+        local dir
+        for dir in "$hooks_root"/*/; do
+          [ -d "$dir" ] || continue
+          if [ -e "${dir}.dispatcher" ] || [ -e "${dir}commit-msg" ]; then
+            install -m 0755 "$src" "${dir}commit-msg.cursor.zz-strip-attribution" || true
+          fi
+        done
+      fi
+      sleep 2
+    done
+  ) >/dev/null 2>&1 &
+}
+
+strip_injected_attribution
+
 # Compose bind-mounts ./data. A previous root-owned daemon can leave that
 # directory unwritable, and init-secrets.sh then cannot create data/media.
 ensure_workspace_dirs() {
