@@ -8,7 +8,7 @@ import { bindingFromRow, loadDrawerRow, loadNodeRow, type Deps, type MemberActor
 const MIN_SCORE = 0.35;
 const CHUNK_SIZE = 800;
 const MAX_CHUNKS = 8;
-/** Attempts after the first refused connection, then a backfill probe takes over. */
+/** Attempts after the first unreachable embedding call, then a backfill probe takes over. */
 export const EMBEDDING_RETRY_DELAYS_MS = [250, 1000, 4000];
 /** Probe cadence once retries are exhausted. The last delay repeats until embeddings work. */
 export const EMBEDDING_BACKFILL_DELAYS_MS = [2000, 5000, 15000, 30000];
@@ -235,18 +235,37 @@ function sleep(deps: Deps, ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const RETRYABLE_NETWORK_CODES = new Set([
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "ESOCKETTIMEDOUT",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_BODY_TIMEOUT",
+]);
+
+/** Network failures and embedding HTTP 5xx are retried. A 4xx is the caller's error. */
 export function isEmbedderUnavailable(error: unknown): boolean {
-  const seen = new Set<unknown>();
-  let current: unknown = error;
-  while (current && typeof current === "object" && !seen.has(current)) {
-    seen.add(current);
-    const record = current as { code?: unknown; message?: unknown; cause?: unknown; errors?: unknown };
-    if (record.code === "ECONNREFUSED") return true;
-    if (typeof record.message === "string" && record.message.includes("ECONNREFUSED")) return true;
-    if (Array.isArray(record.errors) && record.errors.some((item) => isEmbedderUnavailable(item))) return true;
-    current = record.cause;
+  return embedderDown(error, new Set());
+}
+
+function embedderDown(error: unknown, seen: Set<unknown>): boolean {
+  if (!error || typeof error !== "object" || seen.has(error)) return false;
+  seen.add(error);
+  const record = error as { code?: unknown; message?: unknown; cause?: unknown; errors?: unknown; status?: unknown; name?: unknown };
+  if (typeof record.code === "string" && (RETRYABLE_NETWORK_CODES.has(record.code) || record.code.includes("TIMEOUT"))) return true;
+  if (typeof record.status === "number" && record.status >= 500 && record.status <= 599) return true;
+  if (typeof record.name === "string" && record.name.endsWith("TimeoutError")) return true;
+  if (typeof record.message === "string") {
+    if (/\b(ENOTFOUND|EAI_AGAIN|ECONNRESET|ECONNREFUSED|ETIMEDOUT)\b/.test(record.message)) return true;
+    if (/timeout/i.test(record.message)) return true;
+    if (/Embedding request failed \((5\d\d)\)/.test(record.message)) return true;
   }
-  return false;
+  if (Array.isArray(record.errors) && record.errors.some((item) => embedderDown(item, seen))) return true;
+  return embedderDown(record.cause, seen);
 }
 
 async function indexOnce(deps: Deps, input: IndexTarget): Promise<void> {

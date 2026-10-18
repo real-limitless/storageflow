@@ -93,7 +93,11 @@ export function createHttpEmbedder(options: HttpEmbedderOptions): Embedder {
         },
         body: JSON.stringify({ model: options.model, input: texts }),
       });
-      if (!response.ok) throw new Error(`Embedding request failed (${response.status})`);
+      if (!response.ok) {
+        const error = new Error(`Embedding request failed (${response.status})`) as Error & { status: number };
+        error.status = response.status;
+        throw error;
+      }
       const payload = (await response.json()) as { data?: Array<{ embedding?: number[] }> };
       const rows = payload.data ?? [];
       return texts.map((_, index) => fitDimensions(rows[index]?.embedding ?? []));
