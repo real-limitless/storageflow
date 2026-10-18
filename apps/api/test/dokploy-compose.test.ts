@@ -57,12 +57,14 @@ test("dokploy compose publishes no host ports and requires secrets", () => {
   assert.match(text, /media-data:\/mnt\/media/);
   assert.match(text, /pg-data:\/var\/lib\/postgresql\/data/);
   assert.match(text, /\$\{STORAGEFLOW_SECRETS_DIR:-secrets-data\}:\/config:ro/);
-  assert.match(text, /\$\{POSTGRES_PASSWORD:\?/);
-  assert.match(text, /\$\{APP_ENCRYPTION_KEY:\?/);
-  assert.match(text, /\$\{SFTPGO_ADMIN_PASSWORD:\?/);
+  assert.match(text, /\$\{POSTGRES_PASSWORD:\?required\}/);
+  assert.match(text, /\$\{APP_ENCRYPTION_KEY:\?required\}/);
+  assert.match(text, /\$\{SFTPGO_ADMIN_PASSWORD:\?required\}/);
   assert.match(text, /\$\{SEED_PASSWORD:\?/);
   assert.match(text, /\$\{PUBLIC_ORIGIN:\?/);
   assert.doesNotMatch(text, /POSTGRES_PASSWORD:-/);
+  assert.doesNotMatch(text, /0\.0\.0\.0/);
+  assert.doesNotMatch(text, /traefik\./i);
 
   const blocks = serviceBlocks(text);
   for (const name of ["s3-through", "s3-cache", "s3-acme", "sftpgo", "media-mount", "postgres", "api", "web"]) {
@@ -71,6 +73,18 @@ test("dokploy compose publishes no host ports and requires secrets", () => {
   const web = blocks.get("web") ?? "";
   assert.match(web, /dokploy-network/);
   assert.match(web, /"80"/);
+  assert.doesNotMatch(web, /^\s*ports\s*:/m);
+  for (const name of ["postgres", "sftpgo"]) {
+    const block = blocks.get(name) ?? "";
+    assert.doesNotMatch(block, /^\s*ports\s*:/m, name);
+    assert.doesNotMatch(block, /dokploy-network/, name);
+  }
+  assert.doesNotMatch(blocks.get("sftpgo") ?? "", /2022/);
+  for (const name of ["api", "web", "s3-through", "s3-cache", "s3-acme"]) {
+    const block = blocks.get(name) ?? "";
+    assert.doesNotMatch(block, /^\s*ports\s*:/m, name);
+    assert.doesNotMatch(block, /0\.0\.0\.0/, name);
+  }
   for (const [name, block] of blocks) {
     if (name === "web") continue;
     assert.doesNotMatch(block, /dokploy-network/, name);
@@ -113,6 +127,9 @@ test("rendered dokploy config has no published ports", { skip: !dockerReady() },
   assert.equal(rendered.status, 0, rendered.stderr);
   assert.doesNotMatch(rendered.stdout, /^\s*ports\s*:/m);
   assert.doesNotMatch(rendered.stdout, /published\s*:/);
+  assert.doesNotMatch(rendered.stdout, /0\.0\.0\.0/);
+  assert.doesNotMatch(rendered.stdout, /traefik\./i);
+  assert.doesNotMatch(rendered.stdout, /2022/);
   assert.match(rendered.stdout, /backend-data:/);
   assert.match(rendered.stdout, /secrets-data:/);
   assert.match(rendered.stdout, /dokploy-network:/);

@@ -70,12 +70,11 @@ services:
     environment:
       SFTPGO_DATA_PROVIDER__CREATE_DEFAULT_ADMIN: "true"
       SFTPGO_DEFAULT_ADMIN_USERNAME: ${SFTPGO_ADMIN_USERNAME:-admin}
-      SFTPGO_DEFAULT_ADMIN_PASSWORD: ${SFTPGO_ADMIN_PASSWORD:?SFTPGO_ADMIN_PASSWORD is required}
+      SFTPGO_DEFAULT_ADMIN_PASSWORD: ${SFTPGO_ADMIN_PASSWORD:?required}
     volumes:
       - sftpgo-data:/var/lib/sftpgo
     expose:
       - "8080"
-      - "2022"
     depends_on:
       - s3-cache
       - s3-through
@@ -114,7 +113,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: storageflow
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
       POSTGRES_DB: storageflow
     volumes:
       - pg-data:/var/lib/postgresql/data
@@ -132,13 +131,13 @@ services:
       dockerfile: apps/api/Dockerfile
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgres://storageflow:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/storageflow
+      DATABASE_URL: postgres://storageflow:${POSTGRES_PASSWORD:?required}@postgres:5432/storageflow
       HOSTED_S3_ENDPOINT: http://s3-acme:8080
       HOSTED_S3_BUCKET: ${HOSTED_S3_BUCKET:-acme-plain}
       HOSTED_TENANT: ${HOSTED_TENANT:-acme}
       SECRETS_DIR: /config
       PORT: "8787"
-      APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:?APP_ENCRYPTION_KEY is required}
+      APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:?required}
       SEED_EMAIL: ${SEED_EMAIL:-ada@acme.test}
       SEED_PASSWORD: ${SEED_PASSWORD:?SEED_PASSWORD is required}
       SEED_NAME: ${SEED_NAME:-Ada}

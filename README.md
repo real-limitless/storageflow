@@ -71,7 +71,9 @@ Set the Dokploy compose path to `docker-compose.dokploy.yml` and deploy that fil
 docker compose -f docker-compose.dokploy.yml up -d --build
 ```
 
-Workstation `docker compose up` keeps using `docker-compose.yml`, which publishes the cabinet, API, SFTP, and S3 ports on the host. The Dokploy file publishes no host ports. Containers reach each other on the Compose network. `web` is the only service on the external network `dokploy-network`. Nginx in `web` listens on container port 80 and proxies `/api/` to `http://api:8787`. Point the domain at service `web`, port 80. This dev environment is `https://storageflow-dev.z.srl`.
+Workstation `docker compose up` keeps using `docker-compose.yml`, which publishes the cabinet, API, SFTP, and S3 ports on the host. The Dokploy file publishes no host ports. `postgres` and `sftpgo` have no `ports` and stay on the Compose network. `api`, `web`, `s3-through`, `s3-cache`, and `s3-acme` publish nothing on `0.0.0.0`. `web` is the only service on the external network `dokploy-network`. This file adds no Traefik labels for `api` or the S3 services. Nginx in `web` listens on container port 80 and proxies `/api/` to `http://api:8787`. Point the domain at service `web`, port 80. This dev environment is `https://storageflow-dev.z.srl`.
+
+SFTP port 2022 is not exposed. A later change can bind that port to a tailnet address only, so it never listens on `0.0.0.0`.
 
 Compose fails if any of these variables is unset:
 
