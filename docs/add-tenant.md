@@ -91,7 +91,7 @@ Generate the key locally. Do not commit it.
 
 ## 4. Compose service
 
-Copy `s3-acme` in `docker-compose.yml`. Set the command to `["cache", "gateway-north", "north"]` and publish a free host port. Restart the stack.
+Copy `s3-acme` in `docker-compose.yml`. Set the command to `["cache", "gateway-north", "north"]` and publish a free host port. On Dokploy, copy the service in `docker-compose.dokploy.yml` and `expose` the container port on the Compose network. Restart the stack.
 
 ```sh
 docker compose up -d --build

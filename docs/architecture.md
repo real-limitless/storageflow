@@ -10,6 +10,7 @@ S3 client     → rclone serve s3
 SFTP client   → SFTPGo → http://s3-<tenant>:8080
 FUSE          → media-mount profile → acme-plain
 backend       → local volume ./data/backend
+                 Dokploy stores that tree on named volume backend-data
                  optional SFTP remote you already operate
 ```
 
