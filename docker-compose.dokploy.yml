@@ -65,7 +65,7 @@ services:
     healthcheck: *s3-health
 
   sftpgo:
-    image: drakkan/sftpgo:v2
+    image: drakkan/sftpgo:v2.7.6
     restart: unless-stopped
     environment:
       SFTPGO_DATA_PROVIDER__CREATE_DEFAULT_ADMIN: "true"
@@ -109,7 +109,7 @@ services:
       - s3-acme
 
   postgres:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:0.8.7-pg16
     restart: unless-stopped
     environment:
       POSTGRES_USER: storageflow
@@ -142,6 +142,9 @@ services:
       SEED_PASSWORD: ${SEED_PASSWORD:?SEED_PASSWORD is required}
       SEED_NAME: ${SEED_NAME:-Ada}
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?PUBLIC_ORIGIN is required}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+      STORAGEFLOW_ENV: ${STORAGEFLOW_ENV:-production}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-1}
       ALLOW_PLAN_FLAG: ${ALLOW_PLAN_FLAG:-}
       COOKIE_SECURE: ${COOKIE_SECURE:-1}
       EMBEDDING_URL: ${EMBEDDING_URL:-}
@@ -165,6 +168,9 @@ services:
       context: .
       dockerfile: apps/web/Dockerfile
     restart: unless-stopped
+    environment:
+      CLIENT_MAX_BODY_SIZE: ${CLIENT_MAX_BODY_SIZE:-1m}
+      API_CLIENT_MAX_BODY_SIZE: ${API_CLIENT_MAX_BODY_SIZE:-1024m}
     expose:
       - "80"
     networks:

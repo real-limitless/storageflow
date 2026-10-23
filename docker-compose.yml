@@ -1,3 +1,7 @@
+# Local development only. Dokploy uses docker-compose.dokploy.yml.
+# Published ports bind to SF_PUBLISH_HOST. Point that at the loopback interface.
+# Postgres has no default password.
+
 x-s3-health: &s3-health
   test: ["CMD", "python3", "-c", "import socket; socket.create_connection(('127.0.0.1',8080),2).close()"]
   interval: 15s
@@ -36,7 +40,7 @@ services:
       - ./data/backend:/data
       - vfs-cache:/cache
     ports:
-      - "8794:8080"
+      - "${SF_PUBLISH_HOST:?required}:8794:8080"
     healthcheck: *s3-health
 
   s3-acme:
@@ -54,11 +58,11 @@ services:
       - ./data/backend:/data
       - vfs-cache:/cache
     ports:
-      - "8795:8080"
+      - "${SF_PUBLISH_HOST:?required}:8795:8080"
     healthcheck: *s3-health
 
   sftpgo:
-    image: drakkan/sftpgo:v2
+    image: drakkan/sftpgo:v2.7.6
     restart: unless-stopped
     environment:
       SFTPGO_DATA_PROVIDER__CREATE_DEFAULT_ADMIN: "true"
@@ -67,8 +71,8 @@ services:
     volumes:
       - sftpgo-data:/var/lib/sftpgo
     ports:
-      - "5179:8080"
-      - "2022:2022"
+      - "${SF_PUBLISH_HOST:?required}:5179:8080"
+      - "${SF_PUBLISH_HOST:?required}:2022:2022"
     depends_on:
       - s3-cache
       - s3-through
@@ -103,16 +107,16 @@ services:
       - s3-acme
 
   postgres:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:0.8.7-pg16
     restart: unless-stopped
     environment:
       POSTGRES_USER: storageflow
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-storageflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
       POSTGRES_DB: storageflow
     volumes:
       - pg-data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "${SF_PUBLISH_HOST:?required}:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U storageflow"]
       interval: 5s
@@ -127,7 +131,10 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgres://storageflow:${POSTGRES_PASSWORD:-storageflow}@postgres:5432/storageflow
+      DATABASE_URL: postgres://storageflow:${POSTGRES_PASSWORD:?required}@postgres:5432/storageflow
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+      STORAGEFLOW_ENV: ${STORAGEFLOW_ENV:-development}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-1}
       HOSTED_S3_ENDPOINT: http://s3-acme:8080
       HOSTED_S3_BUCKET: acme-plain
       HOSTED_TENANT: acme
@@ -136,7 +143,7 @@ services:
     volumes:
       - ./secrets:/config:ro
     ports:
-      - "8787:8787"
+      - "${SF_PUBLISH_HOST:?required}:8787:8787"
     depends_on:
       postgres:
         condition: service_healthy
@@ -148,8 +155,11 @@ services:
       context: .
       dockerfile: apps/web/Dockerfile
     restart: unless-stopped
+    environment:
+      CLIENT_MAX_BODY_SIZE: ${CLIENT_MAX_BODY_SIZE:-1m}
+      API_CLIENT_MAX_BODY_SIZE: ${API_CLIENT_MAX_BODY_SIZE:-1024m}
     ports:
-      - "5173:80"
+      - "${SF_PUBLISH_HOST:?required}:5173:80"
     depends_on:
       - api
 
