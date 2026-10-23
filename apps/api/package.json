@@ -11,12 +11,13 @@
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.3.4",
+    "@hono/node-server": "^1.14.0",
     "@storageflow/domain": "*",
     "@storageflow/storage": "*",
-    "@hono/node-server": "^1.14.0",
     "hono": "^4.7.5",
     "pg": "^8.14.1",
-    "tsx": "^4.19.3"
+    "tsx": "^4.19.3",
+    "zod": "^3.24.2"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",

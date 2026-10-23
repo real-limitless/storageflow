@@ -2,6 +2,8 @@ export class JobQueue {
   private tasks: Array<() => Promise<void>> = [];
   private pumping: Promise<void> | null = null;
 
+  constructor(private readonly report: (error: unknown) => void = () => {}) {}
+
   enqueue(task: () => Promise<void>): void {
     this.tasks.push(task);
     if (!this.pumping) this.pumping = this.pump();
@@ -15,7 +17,7 @@ export class JobQueue {
         try {
           await task();
         } catch (error) {
-          console.error(error);
+          this.report(error);
         }
       }
     } finally {

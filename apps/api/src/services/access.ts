@@ -3,6 +3,7 @@ import type { GrantVerb, MemberRole, TransferPlan } from "@storageflow/domain";
 import { scopeAllows, verbsForNode, type GrantCheck } from "@storageflow/domain";
 import type { ObjectBinding } from "@storageflow/storage";
 import type { AppConfig } from "../config.js";
+import type { Logger } from "../log.js";
 import { decryptString } from "../crypto.js";
 import type { Db } from "../db.js";
 import { HttpError, asBool, asNumber } from "../http.js";
@@ -21,6 +22,9 @@ export interface Deps {
   now: () => Date;
   /** Test hook. Production waits with setTimeout. */
   sleep?: (ms: number) => Promise<void>;
+  logger?: Logger;
+  /** Immediate TCP peer. Production reads the socket. Tests supply this. */
+  peerAddress?: (request: Request) => string | null;
 }
 
 export interface MemberActor {

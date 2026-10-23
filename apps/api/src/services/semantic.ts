@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { scopeAllows, verbsForNode, type GrantCheck, type RagAnswer, type SearchHit } from "@storageflow/domain";
 import { EMBEDDING_DIMENSIONS, fitDimensions, vectorLiteral, type Passage } from "../embed.js";
 import { HttpError } from "../http.js";
+import { runtimeEvent } from "../log.js";
 import { mapNode, verbsFromRow, type Row } from "../mappers.js";
 import { bindingFromRow, loadDrawerRow, loadNodeRow, type Deps, type MemberActor } from "./access.js";
 
@@ -153,7 +154,9 @@ async function indexRecovering(deps: Deps, input: IndexTarget, attempt: number):
     if (!isEmbedderUnavailable(error)) throw error;
     const delay = EMBEDDING_RETRY_DELAYS_MS[attempt];
     if (delay == null) {
-      console.error("Embedding endpoint is down; unindexed files will be backfilled when it recovers");
+      deps.logger?.write(
+        runtimeEvent(deps.config, deps.now(), "embedding.unavailable", "failure", "Embedding endpoint is down; unindexed files will be backfilled when it recovers"),
+      );
       scheduleBackfill(deps);
       return;
     }
@@ -187,7 +190,9 @@ export async function backfillUnindexed(deps: Deps): Promise<void> {
         scheduleBackfill(deps);
         return;
       }
-      console.error(error);
+      deps.logger?.write(
+        runtimeEvent(deps.config, deps.now(), "embedding.index", "failure", error instanceof Error ? error.message : "Embedding index failed"),
+      );
     }
   }
 }

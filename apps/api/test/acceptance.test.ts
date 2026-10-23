@@ -6,6 +6,7 @@ import { buildTree } from "@storageflow/domain";
 import { createApp } from "../src/app.js";
 import { createResolver } from "../src/adapters.js";
 import type { AppConfig } from "../src/config.js";
+import type { RateLimitConfig } from "../src/rate-limit.js";
 import { decryptString } from "../src/crypto.js";
 import { openDatabase } from "../src/db.js";
 import { createExtractiveAnswerer, createHashEmbedder, createHttpEmbedder, EMBEDDING_DIMENSIONS, type Embedder } from "../src/embed.js";
@@ -16,6 +17,29 @@ import type { Deps } from "../src/services/access.js";
 import { totpAt, totpCode } from "../src/totp.js";
 
 const key = Buffer.from("ab".repeat(32), "hex");
+
+function openLimits(): RateLimitConfig {
+  const rule = { limit: 10_000, windowMs: 60_000 };
+  return {
+    enabled: true,
+    signupIp: rule,
+    signupAccount: rule,
+    signInIp: rule,
+    signInAccount: rule,
+    magicIp: rule,
+    magicAccount: rule,
+    magicConsumeIp: rule,
+    magicConsumeAccount: rule,
+    mfaIp: rule,
+    mfaAccount: rule,
+    ticketIp: rule,
+    ticketAccount: rule,
+    abuseIp: rule,
+    abuseAccount: rule,
+    portalIp: rule,
+    portalAccount: rule,
+  };
+}
 
 function config(): AppConfig {
   return {
@@ -50,6 +74,9 @@ function config(): AppConfig {
     answerUrl: "",
     answerApiKey: "",
     answerModel: "",
+    rateLimit: openLimits(),
+    trustedProxies: [],
+    environment: "test",
   };
 }
 

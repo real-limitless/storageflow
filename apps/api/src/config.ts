@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { rateLimitFromEnv, type RateLimitConfig } from "./rate-limit.js";
 
 export interface AppConfig {
   encryptionKey: Buffer;
@@ -33,6 +34,9 @@ export interface AppConfig {
   answerUrl: string;
   answerApiKey: string;
   answerModel: string;
+  rateLimit: RateLimitConfig;
+  trustedProxies: string[];
+  environment: string;
 }
 
 function readTenants(secretsDir: string, tenant: string): { accessKey: string; secretKey: string } {
@@ -90,5 +94,23 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     answerUrl: env.ANSWER_URL ?? "",
     answerApiKey: env.ANSWER_API_KEY ?? "",
     answerModel: env.ANSWER_MODEL ?? "gpt-4o-mini",
+    rateLimit: rateLimitFromEnv(env),
+    trustedProxies: trustedProxyList(env),
+    environment: environmentName(env),
   };
+}
+
+function trustedProxyList(env: NodeJS.ProcessEnv): string[] {
+  return (env.TRUSTED_PROXIES ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function environmentName(env: NodeJS.ProcessEnv): string {
+  const value = (env.STORAGEFLOW_ENV || env.NODE_ENV || "development").trim();
+  if (!/^[A-Za-z0-9._-]{1,40}$/.test(value)) {
+    throw new Error("STORAGEFLOW_ENV must be a short label");
+  }
+  return value;
 }
