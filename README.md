@@ -59,10 +59,42 @@ npm run dev:web
 
 ```sh
 docker compose --profile fuse up -d --build
-docker compose -f docker-compose.yml -f docker-compose.dokploy.yml up -d --build
 ```
 
-The fuse profile mounts `acme-plain` at `${MEDIA_MOUNT:-./data/media}`. It needs `/dev/fuse`. The Dokploy file only attaches an external network named `dokploy-network`. It does not start without that network.
+The fuse profile mounts `acme-plain` at `${MEDIA_MOUNT:-./data/media}`. It needs `/dev/fuse`.
+
+## Deploy on Dokploy
+
+Set the Dokploy compose path to `docker-compose.dokploy.yml` and deploy that file by itself:
+
+```sh
+docker compose -f docker-compose.dokploy.yml up -d --build
+```
+
+Workstation `docker compose up` keeps using `docker-compose.yml`, which publishes the cabinet, API, SFTP, and S3 ports on the host. The Dokploy file publishes no host ports. `postgres` and `sftpgo` have no `ports` and stay on the Compose network. `api`, `web`, `s3-through`, `s3-cache`, and `s3-acme` publish nothing on `0.0.0.0`. `web` is the only service on the external network `dokploy-network`. This file adds no Traefik labels for `api` or the S3 services. Nginx in `web` listens on container port 80 and proxies `/api/` to `http://api:8787`. Point the domain at service `web`, port 80. This dev environment is `https://storageflow-dev.z.srl`.
+
+SFTP port 2022 is not exposed. A later change can bind that port to a tailnet address only, so it never listens on `0.0.0.0`.
+
+Compose fails if any of these variables is unset:
+
+| Variable | Role |
+| --- | --- |
+| `POSTGRES_PASSWORD` | Postgres role `storageflow`. Stored on first init of volume `pg-data`. |
+| `APP_ENCRYPTION_KEY` | 64 hex characters. |
+| `SFTPGO_ADMIN_PASSWORD` | SFTPGo admin password. |
+| `SEED_PASSWORD` | Seeded cabinet operator. |
+| `PUBLIC_ORIGIN` | Public cabinet origin, including `https://`. |
+
+`STORAGEFLOW_SECRETS_DIR` is optional. Set it to an absolute host directory to bind that directory at `/config`. When it is unset, `/config` is the named volume `secrets-data`. A `$` in a secret is Compose interpolation; write it as `$$`.
+
+Place these files in that directory or volume. Container path stays `/config` for `s3-through`, `s3-cache`, `s3-acme`, `media-mount`, and `api`:
+
+- `tenants.json`
+- `rclone.json`
+
+Persistent data uses named volumes: `backend-data` (`/data`), `pg-data`, `vfs-cache`, `sftpgo-data`, and `media-data` (`/mnt/media` on the fuse profile).
+
+Defaults when unset: `SEED_EMAIL` (`ada@acme.test`), `SFTPGO_ADMIN_USERNAME` (`admin`), `HOSTED_S3_BUCKET` (`acme-plain`), `HOSTED_TENANT` (`acme`), `COOKIE_SECURE` (`1`). Set `SOPS_AGE_KEY` when encrypted files are mounted at `/encrypted`. The external network `dokploy-network` must already exist.
 
 ## Add a tenant
 

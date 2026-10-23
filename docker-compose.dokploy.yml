@@ -1,20 +1,185 @@
+# Dokploy deploy file. Point Dokploy at this file alone:
+#   docker compose -f docker-compose.dokploy.yml up -d --build
+# Traefik on the external network dokploy-network targets service web, port 80.
+# No service publishes a host port. Persistent data is named volumes.
+
+x-s3-health: &s3-health
+  test: ["CMD", "python3", "-c", "import socket; socket.create_connection(('127.0.0.1',8080),2).close()"]
+  interval: 15s
+  timeout: 5s
+  retries: 5
+  start_period: 45s
+
+x-config-volume: &config-volume "${STORAGEFLOW_SECRETS_DIR:-secrets-data}:/config:ro"
+
 services:
   s3-through:
-    networks:
-      - default
-      - dokploy-network
+    build: .
+    command: ["through", "gateway", "admin"]
+    restart: unless-stopped
+    environment:
+      SOPS_AGE_KEY: ${SOPS_AGE_KEY:-}
+    tmpfs:
+      - /run/secrets:mode=1777,size=16m
+    volumes:
+      - *config-volume
+      - backend-data:/data
+    expose:
+      - "8080"
+    healthcheck: *s3-health
+
   s3-cache:
-    networks:
-      - default
-      - dokploy-network
+    build: .
+    command: ["cache", "gateway", "admin"]
+    restart: unless-stopped
+    environment:
+      SOPS_AGE_KEY: ${SOPS_AGE_KEY:-}
+      VFS_CACHE_MAX_SIZE: ${VFS_CACHE_MAX_SIZE:-20G}
+      VFS_WRITE_BACK: ${VFS_WRITE_BACK:-5s}
+    tmpfs:
+      - /run/secrets:mode=1777,size=16m
+    volumes:
+      - *config-volume
+      - backend-data:/data
+      - vfs-cache:/cache
+    expose:
+      - "8080"
+    healthcheck: *s3-health
+
   s3-acme:
-    networks:
-      - default
-      - dokploy-network
+    build: .
+    command: ["cache", "gateway-acme", "acme"]
+    restart: unless-stopped
+    environment:
+      SOPS_AGE_KEY: ${SOPS_AGE_KEY:-}
+      VFS_CACHE_MAX_SIZE: ${VFS_CACHE_MAX_SIZE:-20G}
+      VFS_WRITE_BACK: ${VFS_WRITE_BACK:-5s}
+    tmpfs:
+      - /run/secrets:mode=1777,size=16m
+    volumes:
+      - *config-volume
+      - backend-data:/data
+      - vfs-cache:/cache
+    expose:
+      - "8080"
+    healthcheck: *s3-health
+
   sftpgo:
+    image: drakkan/sftpgo:v2
+    restart: unless-stopped
+    environment:
+      SFTPGO_DATA_PROVIDER__CREATE_DEFAULT_ADMIN: "true"
+      SFTPGO_DEFAULT_ADMIN_USERNAME: ${SFTPGO_ADMIN_USERNAME:-admin}
+      SFTPGO_DEFAULT_ADMIN_PASSWORD: ${SFTPGO_ADMIN_PASSWORD:?required}
+    volumes:
+      - sftpgo-data:/var/lib/sftpgo
+    expose:
+      - "8080"
+    depends_on:
+      - s3-cache
+      - s3-through
+      - s3-acme
+
+  media-mount:
+    profiles: ["fuse"]
+    build: .
+    user: "0:0"
+    command: ["mount", "acme-plain", "acme"]
+    restart: unless-stopped
+    cap_add:
+      - SYS_ADMIN
+    devices:
+      - /dev/fuse:/dev/fuse
+    security_opt:
+      - apparmor:unconfined
+    environment:
+      SOPS_AGE_KEY: ${SOPS_AGE_KEY:-}
+      VFS_CACHE_MAX_SIZE: ${VFS_CACHE_MAX_SIZE:-20G}
+      VFS_WRITE_BACK: ${VFS_WRITE_BACK:-5s}
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+    tmpfs:
+      - /run/secrets:mode=1777,size=16m
+    volumes:
+      - *config-volume
+      - backend-data:/data
+      - vfs-cache:/cache
+      - media-data:/mnt/media
+    depends_on:
+      - s3-acme
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: storageflow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+      POSTGRES_DB: storageflow
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U storageflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://storageflow:${POSTGRES_PASSWORD:?required}@postgres:5432/storageflow
+      HOSTED_S3_ENDPOINT: http://s3-acme:8080
+      HOSTED_S3_BUCKET: ${HOSTED_S3_BUCKET:-acme-plain}
+      HOSTED_TENANT: ${HOSTED_TENANT:-acme}
+      SECRETS_DIR: /config
+      PORT: "8787"
+      APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:?required}
+      SEED_EMAIL: ${SEED_EMAIL:-ada@acme.test}
+      SEED_PASSWORD: ${SEED_PASSWORD:?SEED_PASSWORD is required}
+      SEED_NAME: ${SEED_NAME:-Ada}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?PUBLIC_ORIGIN is required}
+      ALLOW_PLAN_FLAG: ${ALLOW_PLAN_FLAG:-}
+      COOKIE_SECURE: ${COOKIE_SECURE:-1}
+      EMBEDDING_URL: ${EMBEDDING_URL:-}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
+      ANSWER_URL: ${ANSWER_URL:-}
+      ANSWER_API_KEY: ${ANSWER_API_KEY:-}
+      ANSWER_MODEL: ${ANSWER_MODEL:-}
+    volumes:
+      - *config-volume
+    expose:
+      - "8787"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      s3-acme:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    expose:
+      - "80"
     networks:
       - default
       - dokploy-network
+    depends_on:
+      - api
+
+volumes:
+  sftpgo-data:
+  vfs-cache:
+  pg-data:
+  backend-data:
+  media-data:
+  secrets-data:
 
 networks:
   dokploy-network:

@@ -1,0 +1,17 @@
+#!/bin/sh
+# Drop injected attribution trailers from the commit message file.
+set -eu
+if [ "${1:-}" = "" ] || [ ! -f "$1" ]; then
+  exit 0
+fi
+tmp=$(mktemp)
+awk '
+  BEGIN { IGNORECASE = 1 }
+  /^[[:space:]]*Co-authored-by:.*cursor/ { next }
+  /^[[:space:]]*Made-with:.*cursor/ { next }
+  /[Mm]ade with [Cc]ursor/ { next }
+  /cursoragent@cursor\.com/ { next }
+  { print }
+' "$1" > "$tmp"
+cat "$tmp" > "$1"
+rm -f "$tmp"
