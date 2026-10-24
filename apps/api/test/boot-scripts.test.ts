@@ -40,6 +40,8 @@ test("a second init-secrets.sh run keeps generated secrets", () => {
     assert.equal(envValue(after, key), envValue(before, key));
     assert.ok(envValue(before, key).length > 8);
   }
+  assert.equal(envValue(after, "SF_PUBLISH_HOST"), envValue(before, "SF_PUBLISH_HOST"));
+  assert.ok(envValue(before, "SF_PUBLISH_HOST").length > 0);
 });
 
 test("start script does not call docker compose down -v unless STORAGEFLOW_RESET_VOLUMES=1", () => {

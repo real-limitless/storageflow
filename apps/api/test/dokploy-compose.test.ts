@@ -94,16 +94,41 @@ test("dokploy compose publishes no host ports and requires secrets", () => {
   const nginx = fs.readFileSync(path.join(repo, "apps/web/nginx.conf"), "utf8");
   assert.match(nginx, /listen 80;/);
   assert.match(nginx, /proxy_pass http:\/\/api:8787\//);
+  assert.match(text, /drakkan\/sftpgo:v2\.7\.6/);
+  assert.match(text, /pgvector\/pgvector:0\.8\.7-pg16/);
+  assert.doesNotMatch(text, /drakkan\/sftpgo:v2\s*$/m);
+  assert.doesNotMatch(text, /pgvector\/pgvector:pg16\s*$/m);
 });
 
-test("local compose still publishes workstation ports", () => {
+test("local compose is for development and binds published ports to loopback", () => {
   const text = fs.readFileSync(localFile, "utf8");
-  for (const binding of ["5432:5432", "8787:8787", "5173:80", "5179:8080", "2022:2022", "8794:8080", "8795:8080"]) {
-    assert.ok(text.includes(binding), binding);
+  assert.match(text, /Local development only/);
+  assert.match(text, /docker-compose\.dokploy\.yml/);
+  for (const port of ["5432:5432", "8787:8787", "5173:80", "5179:8080", "2022:2022", "8794:8080", "8795:8080"]) {
+    assert.ok(text.includes("${SF_PUBLISH_HOST:?required}:" + port), port);
   }
-  assert.match(text, /POSTGRES_PASSWORD:-storageflow/);
+  assert.doesNotMatch(text, /^\s+- "[0-9]+:/m);
+  assert.doesNotMatch(text, /^\s+- "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:/m);
+  assert.match(text, /POSTGRES_PASSWORD:\?required/);
+  assert.doesNotMatch(text, /POSTGRES_PASSWORD:-/);
+  assert.match(text, /drakkan\/sftpgo:v2\.7\.6/);
+  assert.match(text, /pgvector\/pgvector:0\.8\.7-pg16/);
   assert.match(text, /\.\/data\/backend:\/data/);
   assert.match(text, /\.\/secrets:\/config:ro/);
+});
+
+test("nginx sets a finite body limit and forwards proxy headers", () => {
+  const nginx = fs.readFileSync(path.join(repo, "apps/web/nginx.conf"), "utf8");
+  const dockerfile = fs.readFileSync(path.join(repo, "apps/web/Dockerfile"), "utf8");
+  assert.doesNotMatch(nginx, /client_max_body_size\s+0\b/);
+  assert.match(nginx, /client_max_body_size \$\{CLIENT_MAX_BODY_SIZE\}/);
+  assert.match(nginx, /location \/api\/ \{[^}]*client_max_body_size \$\{API_CLIENT_MAX_BODY_SIZE\}/s);
+  assert.match(nginx, /proxy_set_header X-Real-IP \$remote_addr;/);
+  assert.match(nginx, /proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;/);
+  assert.match(nginx, /proxy_set_header X-Request-Id \$request_id;/);
+  assert.match(dockerfile, /CLIENT_MAX_BODY_SIZE=1m/);
+  assert.match(dockerfile, /API_CLIENT_MAX_BODY_SIZE=1024m/);
+  assert.match(dockerfile, /\/etc\/nginx\/templates\/default\.conf\.template/);
 });
 
 test("rendered dokploy config has no published ports", { skip: !dockerReady() }, () => {

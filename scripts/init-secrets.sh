@@ -45,6 +45,7 @@ fi
 
 python3 - << 'PY'
 import secrets
+import socket
 from pathlib import Path
 
 path = Path(".env")
@@ -65,6 +66,8 @@ ensure("SEED_PASSWORD", secrets.token_urlsafe(12))
 ensure("SEED_NAME", "Ada")
 ensure("ALLOW_PLAN_FLAG", "1")
 ensure("PUBLIC_ORIGIN", "http://127.0.0.1:5173")
+loopback = socket.getaddrinfo("localhost", None, socket.AF_INET)[0][4][0]
+ensure("SF_PUBLISH_HOST", loopback)
 ensure("HOSTED_S3_BUCKET", "acme-plain")
 ensure("HOSTED_TENANT", "acme")
 path.write_text(text)

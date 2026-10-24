@@ -24,6 +24,8 @@ docker compose up -d --build
 
 `init-secrets.sh` writes `.env` and `secrets/tenants.json`. Both are gitignored. SFTPGo admin password is in `.env`. S3 keys are in `secrets/tenants.json`.
 
+`docker-compose.yml` is for local development. Dokploy uses `docker-compose.dokploy.yml`. The local file publishes ports on `SF_PUBLISH_HOST` (point that at the loopback interface; `scripts/init-secrets.sh` fills it) and requires `POSTGRES_PASSWORD` with no default.
+
 S3 clients need path-style. Example backend is a local volume at `./data/backend`. Not a remote server. Not MinIO.
 
 ## What runs
