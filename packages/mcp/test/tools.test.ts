@@ -3,6 +3,7 @@ import test from "node:test";
 import { createApp } from "../../../apps/api/src/app.js";
 import { createResolver } from "../../../apps/api/src/adapters.js";
 import type { AppConfig } from "../../../apps/api/src/config.js";
+import type { RateLimitConfig } from "../../../apps/api/src/rate-limit.js";
 import { openDatabase } from "../../../apps/api/src/db.js";
 import { createExtractiveAnswerer, createHashEmbedder } from "../../../apps/api/src/embed.js";
 import { JobQueue } from "../../../apps/api/src/jobs.js";
@@ -12,6 +13,29 @@ import { createRestClient, type RestClient } from "../src/client.js";
 import { callTool } from "../src/tools.js";
 
 const key = Buffer.from("ab".repeat(32), "hex");
+
+function openLimits(): RateLimitConfig {
+  const rule = { limit: 10_000, windowMs: 60_000 };
+  return {
+    enabled: true,
+    signupIp: rule,
+    signupAccount: rule,
+    signInIp: rule,
+    signInAccount: rule,
+    magicIp: rule,
+    magicAccount: rule,
+    magicConsumeIp: rule,
+    magicConsumeAccount: rule,
+    mfaIp: rule,
+    mfaAccount: rule,
+    ticketIp: rule,
+    ticketAccount: rule,
+    abuseIp: rule,
+    abuseAccount: rule,
+    portalIp: rule,
+    portalAccount: rule,
+  };
+}
 
 function config(): AppConfig {
   return {
@@ -46,6 +70,9 @@ function config(): AppConfig {
     answerUrl: "",
     answerApiKey: "",
     answerModel: "",
+    rateLimit: openLimits(),
+    trustedProxies: [],
+    environment: "test",
   };
 }
 
