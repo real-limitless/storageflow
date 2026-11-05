@@ -16,6 +16,6 @@
     "node": ">=22"
   },
   "overrides": {
-    "rollup": "4.40.1"
+    "rollup": "4.66.0"
   }
 }
