@@ -2,6 +2,7 @@
 #   docker compose -f docker-compose.dokploy.yml up -d --build
 # Traefik on the external network dokploy-network targets service web, port 80.
 # No service publishes a host port. Persistent data is named volumes.
+# config-bootstrap creates tenants.json and rclone.json when /config is empty and writable.
 
 x-s3-health: &s3-health
   test: ["CMD", "python3", "-c", "import socket; socket.create_connection(('127.0.0.1',8080),2).close()"]
@@ -11,8 +12,24 @@ x-s3-health: &s3-health
   start_period: 45s
 
 x-config-volume: &config-volume "${STORAGEFLOW_SECRETS_DIR:-secrets-data}:/config:ro"
+x-config-volume-rw: &config-volume-rw "${STORAGEFLOW_SECRETS_DIR:-secrets-data}:/config"
+x-encrypted-volume: &encrypted-volume "${STORAGEFLOW_ENCRYPTED_DIR:-encrypted-data}:/encrypted:ro"
+x-depends-config: &depends-config
+  config-bootstrap:
+    condition: service_completed_successfully
 
 services:
+  config-bootstrap:
+    build: .
+    entrypoint: ["/opt/storageflow/bootstrap-hosted-config.sh"]
+    command: ["bootstrap"]
+    restart: "no"
+    environment:
+      SOPS_AGE_KEY: ${SOPS_AGE_KEY:-}
+    volumes:
+      - *config-volume-rw
+      - *encrypted-volume
+
   s3-through:
     build: .
     command: ["through", "gateway", "admin"]
@@ -23,10 +40,13 @@ services:
       - /run/secrets:mode=1777,size=16m
     volumes:
       - *config-volume
+      - *encrypted-volume
       - backend-data:/data
     expose:
       - "8080"
     healthcheck: *s3-health
+    depends_on:
+      <<: *depends-config
 
   s3-cache:
     build: .
@@ -40,11 +60,14 @@ services:
       - /run/secrets:mode=1777,size=16m
     volumes:
       - *config-volume
+      - *encrypted-volume
       - backend-data:/data
       - vfs-cache:/cache
     expose:
       - "8080"
     healthcheck: *s3-health
+    depends_on:
+      <<: *depends-config
 
   s3-acme:
     build: .
@@ -58,11 +81,14 @@ services:
       - /run/secrets:mode=1777,size=16m
     volumes:
       - *config-volume
+      - *encrypted-volume
       - backend-data:/data
       - vfs-cache:/cache
     expose:
       - "8080"
     healthcheck: *s3-health
+    depends_on:
+      <<: *depends-config
 
   sftpgo:
     image: drakkan/sftpgo:v2.7.6
@@ -102,11 +128,14 @@ services:
       - /run/secrets:mode=1777,size=16m
     volumes:
       - *config-volume
+      - *encrypted-volume
       - backend-data:/data
       - vfs-cache:/cache
       - media-data:/mnt/media
     depends_on:
-      - s3-acme
+      <<: *depends-config
+      s3-acme:
+        condition: service_started
 
   postgres:
     image: pgvector/pgvector:0.8.7-pg16
@@ -158,6 +187,7 @@ services:
     expose:
       - "8787"
     depends_on:
+      <<: *depends-config
       postgres:
         condition: service_healthy
       s3-acme:
@@ -186,6 +216,7 @@ volumes:
   backend-data:
   media-data:
   secrets-data:
+  encrypted-data:
 
 networks:
   dokploy-network:

@@ -38,4 +38,4 @@ The example backend is local files so `docker compose up` does not need a remote
 
 ## Secrets
 
-Plain config is mounted at `/config` and copied to tmpfs at start. Encrypted config is optional: `SOPS_AGE_KEY` plus `/encrypted/*.sops`. Neither path is baked into the image.
+Plain config is mounted at `/config` and copied to tmpfs at start. On the hosted compose file, `config-bootstrap` creates `tenants.json` and `rclone.json` from the example templates when that directory is writable and either file is absent. Files that are already there stay as they are. An empty read-only directory stops bootstrap with an error, and the gateways stay stopped. Encrypted config is optional: `SOPS_AGE_KEY`, `STORAGEFLOW_ENCRYPTED_DIR`, and `/encrypted/tenants.json.sops` plus `/encrypted/rclone.json.sops`. When that set is complete, plaintext files are not generated. Neither path is baked into the image. The hosted path does not write a `.env`.

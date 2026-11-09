@@ -11,7 +11,7 @@ function stage(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sf-boot-"));
   fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
   fs.mkdirSync(path.join(dir, "secrets"), { recursive: true });
-  for (const name of ["init-secrets.sh", "cloud-agent-start.sh"]) {
+  for (const name of ["init-secrets.sh", "cloud-agent-start.sh", "bootstrap-hosted-config.sh"]) {
     fs.copyFileSync(path.join(repo, "scripts", name), path.join(dir, "scripts", name));
     fs.chmodSync(path.join(dir, "scripts", name), 0o755);
   }
@@ -33,9 +33,14 @@ test("a second init-secrets.sh run keeps generated secrets", () => {
   const first = spawnSync("sh", [script], { cwd: dir, encoding: "utf8" });
   assert.equal(first.status, 0, first.stderr);
   const before = fs.readFileSync(path.join(dir, ".env"), "utf8");
+  const tenantsBefore = fs.readFileSync(path.join(dir, "secrets", "tenants.json"));
+  const rcloneBefore = fs.readFileSync(path.join(dir, "secrets", "rclone.json"));
+  assert.doesNotMatch(tenantsBefore.toString("utf8"), /CHANGE_ME/);
   const second = spawnSync("sh", [script], { cwd: dir, encoding: "utf8" });
   assert.equal(second.status, 0, second.stderr);
   const after = fs.readFileSync(path.join(dir, ".env"), "utf8");
+  assert.ok(tenantsBefore.equals(fs.readFileSync(path.join(dir, "secrets", "tenants.json"))));
+  assert.ok(rcloneBefore.equals(fs.readFileSync(path.join(dir, "secrets", "rclone.json"))));
   for (const key of ["POSTGRES_PASSWORD", "SEED_PASSWORD", "APP_ENCRYPTION_KEY"]) {
     assert.equal(envValue(after, key), envValue(before, key));
     assert.ok(envValue(before, key).length > 8);
