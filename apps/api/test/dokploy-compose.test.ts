@@ -14,7 +14,7 @@ const requiredEnv = {
   APP_ENCRYPTION_KEY: "a".repeat(64),
   SFTPGO_ADMIN_PASSWORD: "dokploy-config-check",
   SEED_PASSWORD: "dokploy-config-check",
-  PUBLIC_ORIGIN: "https://storageflow-dev.z.srl",
+  PUBLIC_ORIGIN: "https://example.com",
 };
 
 function serviceBlocks(text: string): Map<string, string> {
@@ -67,8 +67,22 @@ test("dokploy compose publishes no host ports and requires secrets", () => {
   assert.doesNotMatch(text, /traefik\./i);
 
   const blocks = serviceBlocks(text);
-  for (const name of ["s3-through", "s3-cache", "s3-acme", "sftpgo", "media-mount", "postgres", "api", "web"]) {
+  for (const name of ["config-bootstrap", "s3-through", "s3-cache", "s3-acme", "sftpgo", "media-mount", "postgres", "api", "web"]) {
     assert.ok(blocks.has(name), name);
+  }
+  const bootstrap = blocks.get("config-bootstrap") ?? "";
+  assert.match(bootstrap, /\/opt\/storageflow\/bootstrap-hosted-config\.sh/);
+  assert.match(bootstrap, /restart:\s*"no"/);
+  assert.match(bootstrap, /\*config-volume-rw/);
+  assert.doesNotMatch(bootstrap, /\*config-volume(?!-rw)/);
+  assert.doesNotMatch(bootstrap, /unless-stopped/);
+  assert.match(text, /\$\{STORAGEFLOW_SECRETS_DIR:-secrets-data\}:\/config(?!:ro)/);
+  assert.match(text, /\$\{STORAGEFLOW_ENCRYPTED_DIR:-encrypted-data\}:\/encrypted:ro/);
+  assert.match(text, /condition: service_completed_successfully/);
+  for (const name of ["s3-through", "s3-cache", "s3-acme", "media-mount", "api"]) {
+    const block = blocks.get(name) ?? "";
+    assert.match(block, /\*config-volume(?!-rw)/, name);
+    assert.match(block, /<<: \*depends-config/, name);
   }
   const web = blocks.get("web") ?? "";
   assert.match(web, /dokploy-network/);
@@ -115,6 +129,8 @@ test("local compose is for development and binds published ports to loopback", (
   assert.match(text, /pgvector\/pgvector:0\.8\.7-pg16/);
   assert.match(text, /\.\/data\/backend:\/data/);
   assert.match(text, /\.\/secrets:\/config:ro/);
+  assert.doesNotMatch(text, /config-bootstrap/);
+  assert.doesNotMatch(text, /bootstrap-hosted-config/);
 });
 
 test("nginx sets a finite body limit and forwards proxy headers", () => {
@@ -157,7 +173,11 @@ test("rendered dokploy config has no published ports", { skip: !dockerReady() },
   assert.doesNotMatch(rendered.stdout, /2022/);
   assert.match(rendered.stdout, /backend-data:/);
   assert.match(rendered.stdout, /secrets-data:/);
+  assert.match(rendered.stdout, /encrypted-data:/);
   assert.match(rendered.stdout, /dokploy-network:/);
+  assert.match(rendered.stdout, /config-bootstrap:/);
+  assert.match(rendered.stdout, /service_completed_successfully/);
+  assert.match(rendered.stdout, /bootstrap-hosted-config\.sh/);
   assert.doesNotMatch(rendered.stdout, /\.\/data\/backend/);
   assert.doesNotMatch(rendered.stdout, /\.\/secrets/);
 
@@ -175,4 +195,19 @@ test("rendered dokploy config has no published ports", { skip: !dockerReady() },
   assert.match(bound.stdout, /source: \/var\/lib\/storageflow\/secrets/);
   assert.match(bound.stdout, /target: \/config/);
   assert.doesNotMatch(bound.stdout, /^\s*ports\s*:/m);
+
+  const encrypted = spawnSync("docker", base, {
+    cwd: repo,
+    encoding: "utf8",
+    env: {
+      PATH: process.env.PATH ?? "",
+      HOME: process.env.HOME ?? "/tmp",
+      ...requiredEnv,
+      STORAGEFLOW_ENCRYPTED_DIR: "/var/lib/storageflow/encrypted",
+    },
+  });
+  assert.equal(encrypted.status, 0, encrypted.stderr);
+  assert.match(encrypted.stdout, /source: \/var\/lib\/storageflow\/encrypted/);
+  assert.match(encrypted.stdout, /target: \/encrypted/);
+  assert.match(encrypted.stdout, /read_only: true/);
 });

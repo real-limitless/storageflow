@@ -14,7 +14,7 @@ elif [ -f /config/tenants.json ] && [ -f /config/rclone.json ]; then
   cp /config/tenants.json "$SEC/tenants.json"
   python3 -c "import json,sys; print(json.load(open('/config/rclone.json'))['rclone_conf'], end='')" > "$SEC/rclone.conf"
 else
-  echo "mount /config/tenants.json and /config/rclone.json, or set SOPS_AGE_KEY and mount /encrypted/*.sops" >&2
+  echo "storageflow: missing gateway config. Mount /config/tenants.json and /config/rclone.json, or set SOPS_AGE_KEY and mount /encrypted/tenants.json.sops and /encrypted/rclone.json.sops. On the hosted compose file, config-bootstrap creates the plaintext files when /config is writable." >&2
   exit 1
 fi
 chmod 600 "$SEC/rclone.conf" "$SEC/tenants.json"

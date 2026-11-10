@@ -73,11 +73,11 @@ Set the Dokploy compose path to `docker-compose.dokploy.yml` and deploy that fil
 docker compose -f docker-compose.dokploy.yml up -d --build
 ```
 
-Workstation `docker compose up` keeps using `docker-compose.yml`, which publishes the cabinet, API, SFTP, and S3 ports on the host. The Dokploy file publishes no host ports. `postgres` and `sftpgo` have no `ports` and stay on the Compose network. `api`, `web`, `s3-through`, `s3-cache`, and `s3-acme` publish nothing on `0.0.0.0`. `web` is the only service on the external network `dokploy-network`. This file adds no Traefik labels for `api` or the S3 services. Nginx in `web` listens on container port 80 and proxies `/api/` to `http://api:8787`. Point the domain at service `web`, port 80. This dev environment is `https://storageflow-dev.z.srl`.
+Workstation `docker compose up` keeps using `docker-compose.yml`, which publishes the cabinet, API, SFTP, and S3 ports on the host. The Dokploy file publishes no host ports. `postgres` and `sftpgo` have no `ports` and stay on the Compose network. `api`, `web`, `s3-through`, `s3-cache`, and `s3-acme` publish nothing on `0.0.0.0`. `web` is the only service on the external network `dokploy-network`. This file adds no Traefik labels for `api` or the S3 services. Nginx in `web` listens on container port 80 and proxies `/api/` to `http://api:8787`. Point the domain at service `web`, port 80, and set `PUBLIC_ORIGIN` to that origin (for example `https://example.com`).
 
 SFTP port 2022 is not exposed. A later change can bind that port to a tailnet address only, so it never listens on `0.0.0.0`.
 
-Compose fails if any of these variables is unset:
+The hosted file does not write a `.env`. Supply these variables in the Dokploy environment. Compose fails if any of them is unset:
 
 | Variable | Role |
 | --- | --- |
@@ -89,14 +89,25 @@ Compose fails if any of these variables is unset:
 
 `STORAGEFLOW_SECRETS_DIR` is optional. Set it to an absolute host directory to bind that directory at `/config`. When it is unset, `/config` is the named volume `secrets-data`. A `$` in a secret is Compose interpolation; write it as `$$`.
 
-Place these files in that directory or volume. Container path stays `/config` for `s3-through`, `s3-cache`, `s3-acme`, `media-mount`, and `api`:
+Gateway services mount that directory read-only. `config-bootstrap` mounts it read-write, exits when finished, and does not restart. On an empty writable directory it creates these files from the in-repo examples:
 
 - `tenants.json`
 - `rclone.json`
 
-Persistent data uses named volumes: `backend-data` (`/data`), `pg-data`, `vfs-cache`, `sftpgo-data`, and `media-data` (`/mnt/media` on the fuse profile).
+Container path stays `/config` for `config-bootstrap`, `s3-through`, `s3-cache`, `s3-acme`, `media-mount`, and `api`. New `tenants.json` keys are generated in the volume. The logs do not print them. If both files are already present, bootstrap leaves them unchanged, including files placed by hand. It does not regenerate keys and it does not write `.env`.
 
-Defaults when unset: `SEED_EMAIL` (`ada@acme.test`), `SFTPGO_ADMIN_USERNAME` (`admin`), `HOSTED_S3_BUCKET` (`acme-plain`), `HOSTED_TENANT` (`acme`), `COOKIE_SECURE` (`1`). Set `SOPS_AGE_KEY` when encrypted files are mounted at `/encrypted`. The external network `dokploy-network` must already exist.
+If the directory is missing, or it is empty and not writable (a read-only mount or a read-only filesystem), `config-bootstrap` exits with an error naming the missing files and the two ways to fix it. The gateways depend on that service completing successfully, so they stay stopped instead of exiting and restarting. The API waits on a healthy `s3-acme`, so it stays stopped too until the config path is fixed.
+
+`s3-through`, `s3-cache`, `s3-acme`, and `api` will not start without one of these:
+
+1. `tenants.json` and `rclone.json` in the config directory (created by bootstrap, or mounted by you).
+2. Encrypted config. Set `SOPS_AGE_KEY` and `STORAGEFLOW_ENCRYPTED_DIR` to a directory that contains `tenants.json.sops` and `rclone.json.sops`. Those files mount at `/encrypted`. When the key and both files are present, bootstrap does not write plaintext files. If only one encrypted file is mounted, or the files are mounted without `SOPS_AGE_KEY`, bootstrap refuses to start and does not invent plaintext keys.
+
+The API reads `tenants.json` for the hosted drawer keys. With encrypted config and no plaintext file, set `HOSTED_S3_ACCESS_KEY` and `HOSTED_S3_SECRET_KEY` as well.
+
+Persistent data uses named volumes: `backend-data` (`/data`), `pg-data`, `vfs-cache`, `sftpgo-data`, `secrets-data`, `encrypted-data`, and `media-data` (`/mnt/media` on the fuse profile).
+
+Defaults when unset: `SEED_EMAIL` (`ada@acme.test`), `SFTPGO_ADMIN_USERNAME` (`admin`), `HOSTED_S3_BUCKET` (`acme-plain`), `HOSTED_TENANT` (`acme`), `COOKIE_SECURE` (`1`). The external network `dokploy-network` must already exist.
 
 ## Add a tenant
 
